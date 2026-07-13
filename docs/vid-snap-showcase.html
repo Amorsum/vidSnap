@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VidSnap - AI视频理解助手</title>
+    <style>
+        :root {
+            --bg: #0f0f0f;
+            --surface: #1a1a2e;
+            --surface2: #16213e;
+            --primary: #6c5ce7;
+            --primary-glow: #a29bfe;
+            --accent: #00cec9;
+            --text: #e0e0e0;
+            --text-secondary: #a0a0b0;
+            --border: #2a2a4a;
+            --danger: #ff6b6b;
+            --success: #00b894;
+            --radius: 16px;
+            --radius-sm: 10px;
+            --shadow: 0 4px 24px rgba(108, 92, 231, 0.15);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* ── 背景动画 ── */
+        .bg-gradient {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+        }
+        .bg-gradient .orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(120px);
+            opacity: 0.15;
+            animation: float 20s infinite ease-in-out;
+        }
+        .bg-gradient .orb:nth-child(1) {
+            width: 600px;
+            height: 600px;
+            background: var(--primary);
+            top: -200px;
+            left: -100px;
+            animation-delay: 0s;
+        }
+        .bg-gradient .orb:nth-child(2) {
+            width: 500px;
+            height: 500px;
+            background: var(--accent);
+            bottom: -200px;
+            right: -100px;
+            animation-delay: -7s;
+        }
+        .bg-gradient .orb:nth-child(3) {
+            width: 400px;
+            height: 400px;
+            background: #fd79a8;
+            top: 40%;
+            left: 50%;
+            animation-delay: -14s;
+        }
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(50px, -30px) scale(1.1); }
+            50% { transform: translate(-30px, 20px) scale(0.9); }
+            75% { transform: translate(-20px, -40px) scale(1.05); }
+        }
+
+        /* ── 导航 ── */
+        nav {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(20px);
+            background: rgba(15, 15, 15, 0.85);
+            border-bottom: 1px solid var(--border);
+            padding: 0 24px;
+        }
+        nav .nav-inner {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 64px;
+        }
+        nav .logo {
+            font-size: 1.6rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--primary-glow), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        nav .badge {
+            font-size: 0.75rem;
+            padding: 4px 12px;
+            border-radius: 20px;
+            background: rgba(108, 92, 231, 0.2);
+            color: var(--primary-glow);
+            border: 1px solid rgba(108, 92, 231, 0.3);
+        }
+
+        /* ── 通用布局 ── */
+        section {
+            position: relative;
+            z-index: 1;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 80px 24px;
+        }
+
+        /* ── Hero ── */
+        .hero {
+            text-align: center;
+            padding: 100px 24px 60px;
+        }
+        .hero .tag {
+            display: inline-block;
+            font-size: 0.85rem;
+            padding: 6px 18px;
+            border-radius: 20px;
+            background: rgba(108, 92, 231, 0.15);
+            color: var(--primary-glow);
+            border: 1px solid rgba(108, 92, 231, 0.25);
+            margin-bottom: 24px;
+            animation: fadeInUp 0.6s ease;
+        }
+        .hero h1 {
+            font-size: clamp(2.2rem, 5vw, 3.6rem);
+            font-weight: 900;
+            line-height: 1.2;
+            margin-bottom: 20px;
+            animation: fadeInUp 0.6s ease 0.1s both;
+        }
+        .hero h1 .gradient-text {
+            background: linear-gradient(135deg, var(--primary-glow) 0%, var(--accent) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .hero .subtitle {
+            font-size: 1.15rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin: 0 auto 32px;
+            animation: fadeInUp 0.6s ease 0.2s both;
+        }
+        .hero .cta-row {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+            animation: fadeInUp 0.6s ease 0.3s both;
+        }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 14px 28px;
+            border-radius: 50px;
+            font-size: 1rem;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            border: none;
+            transition: all 0.25s ease;
+        }
+        .btn-primary {
+            background: var(--primary);
+            color: #fff;
+            box-shadow: 0 4px 20px rgba(108, 92, 231, 0.4);
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(108, 92, 231, 0.55);
+        }
+        .btn-outline {
+            background: transparent;
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+        .btn-outline:hover {
+            border-color: var(--primary-glow);
+            background: rgba(108, 92, 231, 0.08);
+        }
+
+        /* ── 演示区 ── */
+        .demo-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow);
+            max-width: 720px;
+            margin: 0 auto;
+            animation: fadeInUp 0.6s ease 0.4s both;
+        }
+        .demo-card .demo-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 20px;
+            background: var(--surface2);
+            border-bottom: 1px solid var(--border);
+        }
+        .demo-card .demo-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+        .demo-dot.red { background: #ff5f57; }
+        .demo-dot.yellow { background: #febc2e; }
+        .demo-dot.green { background: #28c840; }
+        .demo-card .demo-url {
+            flex: 1;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            background: var(--bg);
+            padding: 6px 14px;
+            border-radius: 8px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .demo-card .demo-body {
+            padding: 24px;
+        }
+        .demo-input-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .demo-input {
+            flex: 1;
+            min-width: 240px;
+            padding: 14px 18px;
+            border-radius: var(--radius-sm);
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .demo-input:focus {
+            border-color: var(--primary);
+        }
+        .demo-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .chip {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .chip:hover, .chip.active {
+            background: rgba(108, 92, 231, 0.15);
+            border-color: var(--primary);
+            color: var(--primary-glow);
+        }
+        .demo-result {
+            background: var(--bg);
+            border-radius: var(--radius-sm);
+            padding: 20px;
+            border: 1px solid var(--border);
+        }
+        .demo-result .result-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        .demo-result .video-thumb {
+            width: 120px;
+            height: 68px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #2d3436, #636e72);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            flex-shrink: 0;
+        }
+        .demo-result .video-meta h4 {
+            font-size: 0.95rem;
+            margin-bottom: 4px;
+        }
+        .demo-result .video-meta span {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        .timeline {
+            position: relative;
+            padding-left: 20px;
+            border-left: 2px solid var(--border);
+        }
+        .timeline-item {
+            margin-bottom: 14px;
+            position: relative;
+        }
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -26px;
+            top: 6px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--primary);
+            border: 2px solid var(--surface);
+        }
+        .timeline-item .ts {
+            font-size: 0.8rem;
+            color: var(--accent);
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .timeline-item .ts:hover {
+            text-decoration: underline;
+        }
+        .timeline-item p {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+        .highlight-box {
+            margin-top: 14px;
+            padding: 14px 18px;
+            border-radius: var(--radius-sm);
+            background: rgba(108, 92, 231, 0.1);
+            border: 1px solid rgba(108, 92, 231, 0.2);
+            font-size: 0.9rem;
+        }
+        .highlight-box .label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--primary-glow);
+            margin-bottom: 4px;
+        }
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(24px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ── 功能介绍 ── */
+        .section-title {
+            text-align: center;
+            font-size: 2rem;
+            font-weight: 800;
+            margin-bottom: 12px;
+        }
+        .section-sub {
+            text-align: center;
+            color: var(--text-secondary);
+            margin-bottom: 48px;
+            font-size: 1rem;
+        }
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+        }
+        .feature-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 28px;
+            transition: all 0.3s ease;
+        }
+        .feature-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-4px);
+            box-shadow: var(--shadow);
+        }
+        .feature-card .icon {
+            font-size: 2.2rem;
+            margin-bottom: 16px;
+        }
+        .feature-card h3 {
+            font-size: 1.15rem;
+            margin-bottom: 8px;
+        }
+        .feature-card p {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            line-height: 1.7;
+        }
+
+        /* ── 场景 ── */
+        .scene-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 20px;
+        }
+        .scene-card {
+            background: var(--surface2);
+            border-radius: var(--radius);
+            padding: 24px;
+            border: 1px solid var(--border);
+            text-align: center;
+        }
+        .scene-card .scene-icon {
+            font-size: 2.5rem;
+            margin-bottom: 12px;
+        }
+        .scene-card h4 {
+            font-size: 1rem;
+            margin-bottom: 6px;
+        }
+        .scene-card p {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        /* ── 对比表 ── */
+        .compare-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 24px;
+            font-size: 0.9rem;
+        }
+        .compare-table th,
+        .compare-table td {
+            padding: 14px 18px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        .compare-table th {
+            color: var(--text-secondary);
+            font-weight: 500;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .compare-table td:first-child {
+            font-weight: 600;
+        }
+        .check { color: var(--success); }
+        .cross { color: var(--danger); }
+
+        /* ── 数据亮点 ── */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 24px;
+            text-align: center;
+        }
+        .stat-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 28px 20px;
+        }
+        .stat-card .stat-num {
+            font-size: 2.4rem;
+            font-weight: 900;
+            background: linear-gradient(135deg, var(--primary-glow), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .stat-card .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        /* ── CTA ── */
+        .cta-section {
+            text-align: center;
+            padding: 80px 24px;
+        }
+        .cta-section h2 {
+            font-size: 2rem;
+            margin-bottom: 12px;
+        }
+        .cta-section p {
+            color: var(--text-secondary);
+            margin-bottom: 28px;
+        }
+
+        /* ── Footer ── */
+        footer {
+            text-align: center;
+            padding: 32px 24px;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            border-top: 1px solid var(--border);
+        }
+
+        /* ── 响应式 ── */
+        @media (max-width: 768px) {
+            section { padding: 48px 16px; }
+            .hero { padding: 60px 16px 40px; }
+            .demo-input-row { flex-direction: column; }
+            .feature-grid { grid-template-columns: 1fr; }
+            .demo-result .result-header { flex-direction: column; align-items: flex-start; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 背景 -->
+    <div class="bg-gradient">
+        <div class="orb"></div>
+        <div class="orb"></div>
+        <div class="orb"></div>
+    </div>
+
+    <!-- 导航 -->
+    <nav>
+        <div class="nav-inner">
+            <span class="logo">⚡ VidSnap</span>
+            <span class="badge">Trae 创意赛</span>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <section class="hero">
+        <div class="tag">🎬 AI × 视频理解</div>
+        <h1>让每一个视频<br><span class="gradient-text">一看就懂</span></h1>
+        <p class="subtitle">
+            粘贴YouTube或抖音链接，AI自动帮你"看懂"视频——<br>智能总结、关键提取、跨语言翻译，像聊天一样追问视频里的任何细节。
+        </p>
+        <div class="cta-row">
+            <a href="#demo" class="btn btn-primary">👇 看看效果</a>
+            <a href="#features" class="btn btn-outline">了解更多 →</a>
+        </div>
+    </section>
+
+    <!-- 产品演示 -->
+    <section id="demo">
+        <h2 class="section-title">产品演示</h2>
+        <p class="section-sub">一个链接，30秒内获得视频的全部关键信息</p>
+
+        <div class="demo-card">
+            <div class="demo-header">
+                <span class="demo-dot red"></span>
+                <span class="demo-dot yellow"></span>
+                <span class="demo-dot green"></span>
+                <span class="demo-url">https://www.youtube.com/watch?v=example</span>
+            </div>
+            <div class="demo-body">
+                <div class="demo-input-row">
+                    <input class="demo-input" type="text" value="https://www.youtube.com/watch?v=dQw4w9WgXcQ" readonly>
+                </div>
+                <div class="demo-actions">
+                    <span class="chip active">📝 总结视频</span>
+                    <span class="chip">🔑 提取关键信息</span>
+                    <span class="chip">🌐 翻译成中文</span>
+                    <span class="chip">💬 自定义提问</span>
+                </div>
+
+                <div class="demo-result" style="margin-top:20px;">
+                    <div class="result-header">
+                        <div class="video-thumb">🎬</div>
+                        <div class="video-meta">
+                            <h4>如何用AI提升10倍工作效率 | 完整教程</h4>
+                            <span>⏱ 15:28 &nbsp;|&nbsp; 👤 TechGuide &nbsp;|&nbsp; 🌐 YouTube</span>
+                        </div>
+                    </div>
+
+                    <div class="timeline">
+                        <div class="timeline-item">
+                            <span class="ts">📍 00:00 - 03:20 引入背景</span>
+                            <p>AI工具正在改变工作方式，但大多数人只用了不到10%的能力</p>
+                        </div>
+                        <div class="timeline-item">
+                            <span class="ts">📍 03:20 - 08:45 核心方法 ⭐</span>
+                            <p>Prompt工程的5个关键技巧，包括角色设定、上下文注入、输出格式控制</p>
+                        </div>
+                        <div class="timeline-item">
+                            <span class="ts">📍 08:45 - 12:30 实战案例</span>
+                            <p>以写周报为例，演示从5小时→30分钟的完整流程</p>
+                        </div>
+                        <div class="timeline-item">
+                            <span class="ts">📍 12:30 - 15:00 总结建议</span>
+                            <p>推荐3个必备AI工具，以及每天只需15分钟的AI学习计划</p>
+                        </div>
+                    </div>
+
+                    <div class="highlight-box">
+                        <div class="label">📝 AI 一句话总结</div>
+                        这个视频教你通过Prompt工程5大技巧让AI真正为你工作，核心方法是学会给AI设定专业角色和结构化上下文，配合实战案例展示了如何将写周报从5小时压缩到30分钟。
+                    </div>
+
+                    <div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap;">
+                        <span style="font-size:0.8rem; color:var(--text-secondary);">🔑 关键标签：</span>
+                        <span style="font-size:0.8rem; padding:2px 10px; border-radius:12px; background:rgba(0,206,201,0.1); color:var(--accent);">Prompt工程</span>
+                        <span style="font-size:0.8rem; padding:2px 10px; border-radius:12px; background:rgba(0,206,201,0.1); color:var(--accent);">AI工具</span>
+                        <span style="font-size:0.8rem; padding:2px 10px; border-radius:12px; background:rgba(0,206,201,0.1); color:var(--accent);">工作效率</span>
+                        <span style="font-size:0.8rem; padding:2px 10px; border-radius:12px; background:rgba(0,206,201,0.1); color:var(--accent);">周报自动化</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 核心功能 -->
+    <section id="features">
+        <h2 class="section-title">三大核心功能</h2>
+        <p class="section-sub">不做大而全，只把视频理解这件事做到极致</p>
+        <div class="feature-grid">
+            <div class="feature-card">
+                <div class="icon">📝</div>
+                <h3>智能视频总结</h3>
+                <p>自动识别视频结构，生成分段摘要和章节导航。支持教程、评测、新闻等多种视频类型，智能匹配最佳总结模式。10秒判断视频值不值得看。</p>
+            </div>
+            <div class="feature-card">
+                <div class="icon">🔑</div>
+                <h3>关键信息提取</h3>
+                <p>按时间轴精确定位关键信息点。教程类提取知识点和步骤，评测类提取优缺点，新闻类提取5W1H。每个结论精确绑定到视频时间戳。</p>
+            </div>
+            <div class="feature-card">
+                <div class="icon">🌐</div>
+                <h3>跨语言翻译</h3>
+                <p>不只是字面翻译——AI先理解视频内容，再用目标语言重新表达。保留原文语气、风格和情绪。看外语视频像看母语一样自然流畅。</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- 使用场景 -->
+    <section>
+        <h2 class="section-title">谁在用 VidSnap？</h2>
+        <p class="section-sub">四个典型场景，覆盖最广泛的用户群体</p>
+        <div class="scene-list">
+            <div class="scene-card">
+                <div class="scene-icon">📚</div>
+                <h4>学生 & 自学者</h4>
+                <p>看教程前先判断质量<br>快速定位想学的知识点<br>不再浪费时间在"水视频"上</p>
+            </div>
+            <div class="scene-card">
+                <div class="scene-icon">💼</div>
+                <h4>上班族</h4>
+                <p>通勤路上让AI替你看<br>5分钟掌握10个行业视频的核心观点<br>信息获取效率翻倍</p>
+            </div>
+            <div class="scene-card">
+                <div class="scene-icon">🎨</div>
+                <h4>内容创作者</h4>
+                <p>快速调研同赛道视频<br>分析爆款视频的结构和话题<br>发现内容创作机会</p>
+            </div>
+            <div class="scene-card">
+                <div class="scene-icon">🌍</div>
+                <h4>跨语言内容消费者</h4>
+                <p>英文教程无障碍学习<br>日韩视频随心看<br>打破语言壁垒</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- 痛点对比 -->
+    <section>
+        <h2 class="section-title">有 VidSnap vs 没有 VidSnap</h2>
+        <p class="section-sub">同样是想了解一个15分钟视频讲了什么</p>
+        <div style="overflow-x:auto;">
+            <table class="compare-table">
+                <thead>
+                    <tr>
+                        <th></th>
+                        <th>😣 没有 VidSnap</th>
+                        <th>😎 有 VidSnap</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>用时</td>
+                        <td>15分钟完整观看</td>
+                        <td><span class="check">30秒获取摘要</span></td>
+                    </tr>
+                    <tr>
+                        <td>能否跳看</td>
+                        <td>手动拖进度条，靠运气</td>
+                        <td><span class="check">章节导航，点击跳转</span></td>
+                    </tr>
+                    <tr>
+                        <td>外语视频</td>
+                        <td>听不懂就放弃 ❌</td>
+                        <td><span class="check">自动翻译成中文</span></td>
+                    </tr>
+                    <tr>
+                        <td>信息遗漏</td>
+                        <td>走神错过关键内容</td>
+                        <td><span class="check">结构性总结全覆盖</span></td>
+                    </tr>
+                    <tr>
+                        <td>可验证性</td>
+                        <td>凭记忆，容易记错</td>
+                        <td><span class="check">每个结论精确到秒</span></td>
+                    </tr>
+                    <tr>
+                        <td>多视频对比</td>
+                        <td>看完A再看B再对比</td>
+                        <td><span class="check">同时获取多视频摘要</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- 数据亮点 -->
+    <section>
+        <h2 class="section-title">产品预期价值</h2>
+        <p class="section-sub">不止是效率工具，更是知识获取方式的变革</p>
+        <div class="stats-row">
+            <div class="stat-card">
+                <div class="stat-num">30x</div>
+                <div class="stat-label">信息获取速度提升<br><span style="font-size:0.75rem;">30秒 vs 15分钟</span></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-num">152h</div>
+                <div class="stat-label">每人每年节省时间<br><span style="font-size:0.75rem;">按日处理3个视频计算</span></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-num">0</div>
+                <div class="stat-label">语言门槛<br><span style="font-size:0.75rem;">全球视频内容无障碍消费</span></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-num">2+</div>
+                <div class="stat-label">首发平台覆盖<br><span style="font-size:0.75rem;">YouTube + 抖音</span></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 技术亮点 -->
+    <section>
+        <h2 class="section-title">技术架构</h2>
+        <p class="section-sub">AI全链路视频理解流水线</p>
+        <div style="display:flex; justify-content:center; flex-wrap:wrap; gap:12px; font-size:0.9rem;">
+            <span style="padding:10px 18px; border-radius:20px; background:var(--surface); border:1px solid var(--border);">🔗 链接解析<br><small>yt-dlp</small></span>
+            <span style="padding:12px 4px; color:var(--primary-glow);">→</span>
+            <span style="padding:10px 18px; border-radius:20px; background:var(--surface); border:1px solid var(--border);">🎙️ ASR语音转写<br><small>Whisper Large v3</small></span>
+            <span style="padding:12px 4px; color:var(--primary-glow);">→</span>
+            <span style="padding:10px 18px; border-radius:20px; background:var(--surface); border:1px solid var(--border);">🖼️ 关键帧抽取<br><small>FFmpeg 场景检测</small></span>
+            <span style="padding:12px 4px; color:var(--primary-glow);">→</span>
+            <span style="padding:10px 18px; border-radius:20px; background:var(--surface); border:1px solid var(--border);">🧠 多模态理解<br><small>Claude API</small></span>
+            <span style="padding:12px 4px; color:var(--primary-glow);">→</span>
+            <span style="padding:10px 18px; border-radius:20px; background:var(--surface); border:1px solid var(--border);">✨ 结构化输出<br><small>总结 / 提取 / 翻译</small></span>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="cta-section">
+        <h2>准备好让 AI 帮你看视频了吗？</h2>
+        <p>每天3次免费额度，支持YouTube和抖音<br>专业版 ¥29/月，不限次数和时长</p>
+        <div class="cta-row">
+            <a href="#" class="btn btn-primary">🚀 立即体验（即将上线）</a>
+        </div>
+    </section>
+
+    <footer>
+        VidSnap © 2026 &nbsp;|&nbsp; 参加 Trae 创意大赛 &nbsp;|&nbsp; 赛道：学习工作
+    </footer>
+
+</body>
+</html>
