@@ -103,7 +103,7 @@ export async function transcribeWithSenseVoice(
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": `multipart/form-data; boundary=${boundary}`,
     },
-    body,
+    body: new Uint8Array(body),
   });
 
   onProgress?.(60);
