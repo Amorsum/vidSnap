@@ -89,23 +89,18 @@ async function downloadAudioYtdlp(url: string): Promise<ProcessResult> {
 
 // ─── ytdl-core 模式（serverless 部署） ───
 
-function getYtdlAgent(ytdl: any) {
+function getYtdlCookieHeaders(): Record<string, string> | undefined {
   const cookieStr = process.env.YOUTUBE_COOKIES;
   if (!cookieStr) return undefined;
-  // 将 cookie 字符串转为 ytdl.createAgent 需要的格式
-  const cookies = cookieStr.split(";").map((pair) => {
-    const [name, ...valueParts] = pair.trim().split("=");
-    return { name: name.trim(), value: valueParts.join("=").trim() };
-  }).filter((c) => c.name);
-  return ytdl.createAgent(cookies);
+  return { Cookie: cookieStr };
 }
 
 async function downloadAudioYtdlCore(url: string): Promise<ProcessResult> {
   const ytdl = (await import("@distube/ytdl-core")).default;
   await ensureTempDir();
 
-  const agent = getYtdlAgent(ytdl);
-  const info = await ytdl.getInfo(url, { agent });
+  const headers = getYtdlCookieHeaders();
+  const info = await ytdl.getInfo(url, { requestOptions: headers ? { headers } : undefined });
   const videoDetails = info.videoDetails;
   const videoInfo: VideoInfo = {
     id: videoDetails.videoId,
@@ -120,7 +115,7 @@ async function downloadAudioYtdlCore(url: string): Promise<ProcessResult> {
   const ext = audioFormat.container || "m4a";
   const audioPath = path.join(TEMP_DIR, `${videoInfo.id}.${ext}`);
 
-  const stream = ytdl.downloadFromInfo(info, { format: audioFormat, agent });
+  const stream = ytdl.downloadFromInfo(info, { format: audioFormat });
   const writeStream = (await import("fs")).createWriteStream(audioPath);
 
   await new Promise<void>((resolve, reject) => {
@@ -142,8 +137,8 @@ export async function extractVideoInfo(url: string): Promise<VideoInfo> {
   // serverless 模式：YouTube 用 ytdl-core
   if (detectPlatform(url) === "youtube") {
     const ytdl = (await import("@distube/ytdl-core")).default;
-    const agent = getYtdlAgent(ytdl);
-    const info = await ytdl.getInfo(url, { agent });
+    const headers = getYtdlCookieHeaders();
+    const info = await ytdl.getInfo(url, { requestOptions: headers ? { headers } : undefined });
     const vd = info.videoDetails;
     return {
       id: vd.videoId,
