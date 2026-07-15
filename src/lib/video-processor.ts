@@ -28,14 +28,20 @@ export interface ProcessResult {
 
 // ─── 工具 ───
 
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
 function ensureTempDir(): Promise<string> {
   return fs.mkdir(TEMP_DIR, { recursive: true }).then(() => TEMP_DIR);
+}
+
+function getBaseArgs(): string[] {
+  return ["--user-agent", UA];
 }
 
 // ─── 视频信息提取 ───
 
 export async function extractVideoInfo(url: string): Promise<VideoInfo> {
-  const args = ["--dump-json", "--no-playlist", url];
+  const args = [...getBaseArgs(), "--dump-json", "--no-playlist", url];
   const { stdout } = await execFileAsync(YT_DLP_PATH, args);
   const data = JSON.parse(stdout);
   return {
@@ -57,6 +63,7 @@ export async function downloadAudio(url: string): Promise<ProcessResult> {
   const outputTemplate = path.join(TEMP_DIR, `${safeId}.%(ext)s`);
 
   await execFileAsync(YT_DLP_PATH, [
+    ...getBaseArgs(),
     "-f", "bestaudio[ext=m4a]/bestaudio",
     "--output", outputTemplate,
     "--no-playlist",
