@@ -35,10 +35,35 @@ function ensureTempDir(): Promise<string> {
   return fs.mkdir(TEMP_DIR, { recursive: true }).then(() => TEMP_DIR);
 }
 
+function randomHex(len: number): string {
+  return Array.from({ length: len }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+}
+
+function generateBuvid(): { buvid3: string; buvid4: string } {
+  // buvid3 格式: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXXinfoc
+  const uuid = `${randomHex(8)}-${randomHex(4)}-${randomHex(4)}-${randomHex(4)}-${randomHex(12)}`;
+  return {
+    buvid3: `${uuid}infoc`,
+    buvid4: `${uuid.replace(/-/g, "")}-${Date.now()}`,
+  };
+}
+
 async function writeEnvCookies(): Promise<string | null> {
   const cookieStr = process.env.BILIBILI_COOKIES;
-  if (!cookieStr || cookieStr.length < 30) return null;
-  await fs.writeFile(ENV_COOKIES_FILE, cookieStr);
+  let content = cookieStr || "";
+
+  // 确保包含 buvid3/buvid4 指纹 cookie（B站 412 的根本原因）
+  if (!content.includes("buvid3")) {
+    const { buvid3, buvid4 } = generateBuvid();
+    const buvidLines = [
+      `.bilibili.com\tTRUE\t/\tFALSE\t0\tbuvid3\t${buvid3}`,
+      `.bilibili.com\tTRUE\t/\tFALSE\t0\tbuvid4\t${buvid4}`,
+    ];
+    content = content.trim() + "\n" + buvidLines.join("\n") + "\n";
+  }
+
+  if (content.length < 30) return null;
+  await fs.writeFile(ENV_COOKIES_FILE, content);
   return ENV_COOKIES_FILE;
 }
 
