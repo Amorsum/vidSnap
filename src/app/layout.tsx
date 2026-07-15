@@ -11,7 +11,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "VidSnap - AI 视频理解助手",
-  description: "粘贴 YouTube 视频链接，AI 替你看完并回答问题。视频总结、关键信息提取、跨语言翻译。",
+  description: "粘贴B站视频链接，AI 替你看完并总结要点。视频总结、关键信息提取、跨语言翻译。",
 };
 
 export default function RootLayout({

@@ -1,7 +1,6 @@
 import { execFile, spawn, ChildProcess } from "child_process";
 import { promisify } from "util";
 import path from "path";
-import fs from "fs/promises";
 
 const execFileAsync = promisify(execFile);
 
@@ -114,89 +113,6 @@ export interface TranscriptResult {
   language?: string;
 }
 
-// ─── SRT 解析器 ───
-
-function parseSRT(srtContent: string): TranscriptSegment[] {
-  const segments: TranscriptSegment[] = [];
-  const blocks = srtContent.trim().replace(/\r\n/g, "\n").split(/\n\n+/);
-
-  for (const block of blocks) {
-    const lines = block.split("\n").filter((l) => l.trim());
-    if (lines.length < 3) continue;
-
-    // 第二行是时间戳，格式: 00:00:01,234 --> 00:00:05,678
-    const timeMatch = lines[1].match(
-      /(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/
-    );
-    if (!timeMatch) continue;
-
-    const start =
-      parseInt(timeMatch[1]) * 3600 +
-      parseInt(timeMatch[2]) * 60 +
-      parseInt(timeMatch[3]) +
-      parseInt(timeMatch[4]) / 1000;
-    const end =
-      parseInt(timeMatch[5]) * 3600 +
-      parseInt(timeMatch[6]) * 60 +
-      parseInt(timeMatch[7]) +
-      parseInt(timeMatch[8]) / 1000;
-
-    // 剩余行是字幕文本
-    const text = lines.slice(2).join(" ").trim();
-    if (text) {
-      segments.push({ start, end, text });
-    }
-  }
-
-  return segments;
-}
-
-// ─── VTT 解析器 ───
-
-function parseVTT(vttContent: string): TranscriptSegment[] {
-  const segments: TranscriptSegment[] = [];
-  const blocks = vttContent.trim().replace(/\r\n/g, "\n").split(/\n\n+/);
-
-  for (const block of blocks) {
-    const lines = block.split("\n").filter((l) => l.trim());
-    // 跳过 WEBVTT 头和 NOTE 块
-    if (lines.length === 0 || lines[0].startsWith("WEBVTT") || lines[0].startsWith("NOTE")) continue;
-
-    // 查找时间戳行
-    let timeLineIndex = -1;
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes("-->")) {
-        timeLineIndex = i;
-        break;
-      }
-    }
-    if (timeLineIndex === -1) continue;
-
-    const timeMatch = lines[timeLineIndex].match(
-      /(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})\.(\d{3})/
-    );
-    if (!timeMatch) continue;
-
-    const start =
-      parseInt(timeMatch[1]) * 3600 +
-      parseInt(timeMatch[2]) * 60 +
-      parseInt(timeMatch[3]) +
-      parseInt(timeMatch[4]) / 1000;
-    const end =
-      parseInt(timeMatch[5]) * 3600 +
-      parseInt(timeMatch[6]) * 60 +
-      parseInt(timeMatch[7]) +
-      parseInt(timeMatch[8]) / 1000;
-
-    const text = lines.slice(timeLineIndex + 1).join(" ").trim();
-    if (text) {
-      segments.push({ start, end, text });
-    }
-  }
-
-  return segments;
-}
-
 // ─── Whisper 本地转写 ───
 
 /**
@@ -270,32 +186,12 @@ export async function transcribeAudio(
   }
 }
 
-// ─── 从自带字幕解析 ───
-
-/**
- * 从 yt-dlp 下载的字幕文件（VTT 格式）解析为 TranscriptResult
- */
-export async function parseBuiltinSubtitle(
-  subtitlePath: string
-): Promise<TranscriptResult> {
-  const content = await fs.readFile(subtitlePath, "utf-8");
-  const isVTT = subtitlePath.endsWith(".vtt");
-
-  const segments = isVTT ? parseVTT(content) : parseSRT(content);
-
-  return {
-    text: segments.map((s) => s.text).join(" "),
-    segments,
-    source: "builtin",
-  };
-}
-
 // ─── 统一获取字幕入口 ───
 
 import type { ProcessResult } from "./video-processor";
 
 /**
- * 获取视频字幕（优先使用自带字幕，否则 Whisper 转写）
+ * 获取视频字幕（使用 Whisper 转写）
  */
 export async function getTranscript(
   processResult: ProcessResult,
@@ -306,19 +202,7 @@ export async function getTranscript(
     onProgress?: (percent: number) => void;
   }
 ): Promise<TranscriptResult> {
-  // 优先使用 yt-dlp 下载的字幕
-  if (processResult.subtitlePath) {
-    try {
-      const result = await parseBuiltinSubtitle(processResult.subtitlePath);
-      if (result.segments.length > 0) {
-        return result;
-      }
-    } catch {
-      // 字幕解析失败，降级到 Whisper
-    }
-  }
-
-  // 降级到 Whisper 本地转写
+  // 直接使用 Whisper / SenseVoice 转写
   return transcribeAudio(processResult.audioPath, {
     model: options?.model || process.env.WHISPER_MODEL,
     language: options?.language,

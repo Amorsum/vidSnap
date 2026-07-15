@@ -2,19 +2,15 @@
 
 /** 支持的视频平台域名 */
 export const SUPPORTED_DOMAINS = {
-  youtube: [
-    "youtube.com",
-    "youtu.be",
-    "youtube-nocookie.com",
-    "m.youtube.com",
+  bilibili: [
+    "bilibili.com",
+    "b23.tv",
   ],
-  // Week 3-4 扩展
-  // douyin: ["douyin.com", "iesdouyin.com"],
 } as const;
 
-/** YouTube 链接正则 */
-export const YOUTUBE_REGEX =
-  /(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+/** B站视频链接正则 */
+export const BILIBILI_REGEX =
+  /(?:bilibili\.com\/(?:video\/(?:BV[a-zA-Z0-9]{10}|av\d+)|bangumi\/play\/(?:ep|ss)\d+)|b23\.tv\/[a-zA-Z0-9]+)/;
 
 /** 处理动作 */
 export const PROCESS_ACTIONS = ["summarize", "extract", "translate"] as const;
@@ -23,7 +19,7 @@ export const PROCESS_ACTIONS = ["summarize", "extract", "translate"] as const;
 export const ERROR_MESSAGES = {
   URL_REQUIRED: "请提供视频链接",
   ACTION_REQUIRED: '请指定操作类型：summarize（总结）/ extract（关键提取）/ translate（翻译）',
-  UNSUPPORTED_PLATFORM: "目前仅支持 YouTube 链接",
+  UNSUPPORTED_PLATFORM: "目前仅支持B站（bilibili）视频链接",
   ACTION_NOT_READY: (action: string) =>
     `"${action}" 功能即将上线，当前仅支持 "summarize"（总结）`,
   NO_TRANSCRIPT: "无法获取视频字幕，该视频可能没有语音内容",

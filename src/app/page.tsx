@@ -159,7 +159,7 @@ export default function Home() {
             </span>
           </h1>
           <p className="text-lg text-[#a0a0b0]">
-            不用从头追到尾，粘贴链接知原委<br />支持 YouTube / 抖音
+            不用从头追到尾，粘贴链接知原委<br />支持 B站（bilibili）
           </p>
         </div>
 

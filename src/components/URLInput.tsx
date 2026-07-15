@@ -41,7 +41,7 @@ export default function URLInput({ onSubmit, isLoading }: URLInputProps) {
             onChange={(e) => setUrl(e.target.value)}
             onPaste={handlePaste}
             onKeyDown={handleKeyDown}
-            placeholder="粘贴 YouTube / 抖音视频链接..."
+            placeholder="粘贴 B站视频链接..."
             disabled={isLoading}
             className="flex-1 bg-transparent py-3 text-white placeholder-[#666] outline-none disabled:opacity-50"
           />
