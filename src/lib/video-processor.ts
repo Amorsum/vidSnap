@@ -43,20 +43,8 @@ function ensureTempDir(): Promise<string> {
 async function writeEnvCookies(): Promise<string | null> {
   const cookieStr = process.env.YOUTUBE_COOKIES;
   if (!cookieStr) return null;
-
-  const lines = ["# Netscape HTTP Cookie File"];
-  const pairs = cookieStr.split(";").map((p) => p.trim()).filter(Boolean);
-
-  for (const pair of pairs) {
-    const eqIdx = pair.indexOf("=");
-    if (eqIdx === -1) continue;
-    const name = pair.substring(0, eqIdx).trim();
-    const value = pair.substring(eqIdx + 1).trim();
-    // Netscape 格式: domain  flag  path  secure  expiration  name  value
-    lines.push(`.youtube.com\tTRUE\t/\tFALSE\t0\t${name}\t${value}`);
-  }
-
-  await fs.writeFile(ENV_COOKIES_FILE, lines.join("\n"));
+  // 直接写入，支持浏览器扩展导出的 Netscape 格式
+  await fs.writeFile(ENV_COOKIES_FILE, cookieStr);
   return ENV_COOKIES_FILE;
 }
 
