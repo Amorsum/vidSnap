@@ -61,24 +61,14 @@ export async function downloadDouyinAudio(videoUrl: string, videoId: string): Pr
   const videoPath = path.join(TEMP_DIR, `${videoId}.mp4`);
   const audioPath = path.join(TEMP_DIR, `${videoId}.m4a`);
 
-  // 用 yt-dlp 下载视频（直接 URL）
-  try {
-    await execFileAsync("yt-dlp", [
-      "-f", "best",
-      "-o", videoPath,
-      "--no-playlist",
-      videoUrl,
-    ], { timeout: 120000 });
-  } catch {
-    // yt-dlp 失败则用 ffmpeg 直接下载
-    await execFileAsync("ffmpeg", [
-      "-y",
-      "-headers", "Referer: https://www.douyin.com/",
-      "-i", videoUrl,
-      "-c", "copy",
-      videoPath,
-    ], { timeout: 120000 });
-  }
+  // 抖音直链 yt-dlp 无法下载（403），直接用 ffmpeg
+  await execFileAsync("ffmpeg", [
+    "-y",
+    "-headers", "Referer: https://www.douyin.com/",
+    "-i", videoUrl,
+    "-c", "copy",
+    videoPath,
+  ], { timeout: 120000 });
 
   // 用 ffmpeg 提取音频
   await execFileAsync("ffmpeg", [

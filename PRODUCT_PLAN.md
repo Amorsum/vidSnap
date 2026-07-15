@@ -6,7 +6,7 @@
 >
 > **创建日期**：2026-07-11
 >
-> **当前阶段**：Demo MVP 已完成，准备比赛提交与部署
+> **当前阶段**：Demo MVP 已完成，Phase 2 正式上线规划中
 
 ---
 
@@ -61,12 +61,14 @@
 ## 四、目标平台
 
 ### MVP 阶段
-- **YouTube**（优先开发）
-- **抖音/Douyin**（第二优先）
+- **YouTube**（✅ 已支持）
+- **抖音/Douyin**（✅ 已支持）
+
+### Phase 2 新增
+- **B站/Bilibili**（计划中）
 
 ### 后续扩展
 - TikTok
-- B站/Bilibili
 - Vimeo
 - 本地视频文件上传
 
@@ -242,25 +244,150 @@ Step 4: AI 理解与生成 (10-60秒)
 - [x] 接入 DeepSeek API，跑通字幕 → 总结
 - [x] **里程碑：对一个YouTube视频生成中文总结**（✅ 已达成）
 
-### Week 3-4：抖音支持 + 功能完善
-- [ ] 解决抖音链接解析
-- [ ] 实现关键信息提取
-- [ ] 实现翻译功能
-- [ ] **里程碑：支持两大平台的基础三功能**
+### Week 3-4：抖音支持 + 功能完善（✅ 已完成）
+- [x] 解决抖音链接解析（Playwright + ffmpeg）
+- [x] 关键信息提取 + 翻译功能（合并进追问功能）
+- [x] **里程碑：支持两大平台 + 追问功能**（✅ 已达成）
 
-### Week 5-6：产品化
-- [ ] 任务队列 + 异步处理
-- [ ] 用户系统（注册/登录）
-- [ ] 免费额度管理
-- [ ] 前端界面打磨
-- [ ] 错误处理与边界情况
+---
 
-### Week 7-8：上线准备
-- [ ] 支付接入（Stripe / 支付宝/微信支付）
-- [ ] 性能优化
-- [ ] SEO基础
-- [ ] 内测 + Bug修复
-- [ ] **里程碑：MVP 上线**
+### Phase 2：正式上线（当前阶段）
+
+#### 2.1 Vercel 平台部署
+
+**目标：** 将项目从本地运行迁移到 Vercel，实现 24/7 在线、电脑关机也可访问。
+
+**前置条件：**
+- 解决 Vercel 账号登录问题（之前遇到无法登录，需重新尝试）
+- yt-dlp 和 ffmpeg 需要在 Vercel Serverless 环境中可用
+
+**部署方案：**
+
+| 组件 | 方案 | 说明 |
+|------|------|------|
+| 前端页面 | Vercel 托管 | Next.js 原生支持，零配置 |
+| API 路由 | Vercel Serverless Functions | 处理视频解析请求 |
+| yt-dlp | 构建时下载二进制 | 参考 Netlify 方案，用 `download-ytdlp.sh` |
+| ffmpeg | Vercel 内置或自行打包 | 提取音频必需 |
+| Python (Playwright) | 待验证 | 抖音解析需要，Vercel 环境需测试 |
+| 转写 | SenseVoice 云端 API | 已配置，Vercel 环境直接可用 |
+| AI 总结 | DeepSeek API | 纯 API 调用，无依赖问题 |
+
+**待解决问题：**
+- [ ] Vercel 账号登录（之前显示"需要进一步验证"）
+- [ ] Vercel Serverless 执行时间限制（10s Hobby / 60s Pro）
+- [ ] 二进制文件（yt-dlp、ffmpeg）在 Vercel 环境中的兼容性
+- [ ] 抖音 Playwright 在 Serverless 环境中的可行性
+- [ ] 备用方案：如 Vercel 仍不可用，考虑 Railway / Fly.io / 自建服务器
+
+**里程碑：** VidSnap 拥有一个永久在线的公网地址，绑定自有域名。
+
+---
+
+#### 2.2 Bilibili 视频链接支持
+
+**目标：** 新增 B 站视频链接解析，覆盖中文视频内容场景。
+
+**技术要点：**
+
+| 事项 | 说明 |
+|------|------|
+| 解析方式 | 使用 yt-dlp 的 Bilibili 提取器 |
+| 必要条件 | Netscape 格式 cookies（`BILIBILI_COOKIES` 环境变量），包含 `SESSDATA` 和 `buvid3` |
+| User-Agent | 需伪装 Chrome 浏览器 UA |
+| 海外访问 | B 站可能屏蔽海外 IP，需测试（Vercel 服务器在海外） |
+| 降级方案 | 如 yt-dlp 被 412 拦截，可尝试 Playwright 方案 |
+
+**开发任务：**
+- [ ] `src/lib/url-utils.ts`：添加 Bilibili URL 正则匹配
+- [ ] `src/lib/video-processor.ts`：B 站链接走 yt-dlp 下载 + cookie 注入
+- [ ] `src/app/api/process/route.ts`：添加 B 站分支处理逻辑
+- [ ] 测试：国内 IP 直连、海外 IP + cookie 两种场景
+- [ ] 前端 UI：更新平台提示文字
+
+**里程碑：** 支持 YouTube + 抖音 + Bilibili 三大平台。
+
+---
+
+#### 2.3 会员系统
+
+**目标：** 引入用户注册/登录和额度管理，实现免费 + 付费双模式。
+
+**会员体系设计：**
+
+| 维度 | 免费用户 | 专业会员（¥29/月） |
+|------|---------|-------------------|
+| 每日视频额度 | 3 个/天 | 50 个/天 |
+| 单视频时长限制 | ≤30 分钟 | ≤3 小时 |
+| 支持平台 | YouTube、抖音、B站 | 全部 |
+| 功能范围 | 视频总结 + 追问 | 全部功能 |
+| 处理优先级 | 高峰期排队 | 优先处理 |
+| 历史记录 | 保留 7 天 | 永久保存 |
+| 导出功能 | 无 | Markdown / PDF |
+| 品牌露出 | 有水印 | 无水印 |
+
+**技术实现：**
+
+| 模块 | 方案 | 说明 |
+|------|------|------|
+| 用户系统 | NextAuth.js + GitHub OAuth | 最简 MVP 方案，后续可加邮箱/微信登录 |
+| 数据库 | Vercel Postgres / Supabase | Serverless 友好，免费额度足够 MVP |
+| 额度管理 | 每日重置计数器 | 数据库记录 `daily_count` + `last_reset_date` |
+| 付费 | Stripe（海外）/ 支付宝（国内） | Phase 1 先做 Stripe，后续接入支付宝 |
+| 会员状态 | 数据库 `subscription` 表 | 记录 `plan`、`expires_at` 等字段 |
+
+**数据库表设计（草案）：**
+
+```sql
+-- 用户表
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  email VARCHAR(255) UNIQUE,
+  name VARCHAR(100),
+  avatar_url TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 额度表
+CREATE TABLE quotas (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id),
+  daily_count INTEGER DEFAULT 0,
+  last_reset_date DATE DEFAULT CURRENT_DATE,
+  total_processed INTEGER DEFAULT 0
+);
+
+-- 会员表
+CREATE TABLE subscriptions (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id),
+  plan VARCHAR(20) DEFAULT 'free',  -- free | pro
+  stripe_customer_id VARCHAR(100),
+  stripe_subscription_id VARCHAR(100),
+  expires_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+**开发任务：**
+- [ ] 用户系统：注册/登录（NextAuth.js + GitHub OAuth）
+- [ ] 额度管理：API 中间件检查每日剩余额度
+- [ ] 会员系统：Stripe 支付集成，Webhook 处理
+- [ ] 前端：登录按钮、个人中心、额度显示、升级入口
+- [ ] 历史记录页面
+- [ ] 导出功能（Markdown / PDF）
+
+**里程碑：** 完整的免费 + 付费会员体系上线。
+
+---
+
+### Phase 3：产品化增强（后续）
+
+- [ ] 任务队列 + 异步处理（BullMQ + Redis）
+- [ ] 关键帧画廊（视频截图 + 时间轴）
+- [ ] 自动章节划分
+- [ ] 浏览器插件（YouTube / B站一键总结）
+- [ ] 更多平台支持（TikTok、Vimeo）
+- [ ] SEO 优化
+- [ ] 性能优化（CDN 加速、缓存策略）
 
 ---
 
@@ -319,3 +446,4 @@ Step 4: AI 理解与生成 (10-60秒)
 |------|---------|
 | 2026-07-11 | 创建文档，完成产品规划 |
 | 2026-07-15 | Demo MVP 完成：核心链路跑通，SenseVoice 云端接入，双模转写，DeepSeek 多语言修复 |
+| 2026-07-15 | Phase 2 规划：Vercel 部署方案、Bilibili 链接支持、会员系统（免费额度 + 付费会员）设计 |
