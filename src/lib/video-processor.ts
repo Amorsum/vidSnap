@@ -12,6 +12,22 @@ const TEMP_DIR = path.join(os.tmpdir(), "vidsnap");
 const YT_DLP_PATH = "yt-dlp";
 const COOKIES_FILE = path.join(process.cwd(), "cookies.txt");
 
+// ─── 检测 yt-dlp 是否可用（serverless 环境没有）───
+
+let ytdlpAvailable: boolean | null = null;
+async function isYtdlpAvailable(): Promise<boolean> {
+  if (ytdlpAvailable !== null) return ytdlpAvailable;
+  try {
+    await execFileAsync(YT_DLP_PATH, ["--version"]);
+    ytdlpAvailable = true;
+  } catch {
+    ytdlpAvailable = false;
+  }
+  return ytdlpAvailable;
+}
+
+// ─── 类型 ───
+
 export interface VideoInfo {
   id: string;
   title: string;
@@ -26,35 +42,24 @@ export interface ProcessResult {
   subtitlePath: string | null;
 }
 
+// ─── 工具 ───
+
 function ensureTempDir(): Promise<string> {
   return fs.mkdir(TEMP_DIR, { recursive: true }).then(() => TEMP_DIR);
 }
 
-/**
- * 获取 cookie 参数：优先使用 cookies.txt 文件，兜底尝试 Firefox 浏览器
- * - cookies.txt: 放置于项目根目录，从任意浏览器导出，通用性最好
- * - Firefox: cookie 不使用 DPAPI 加密，yt-dlp 可直接读取
- */
 function getCookieArgs(): string[] {
   if (existsSync(COOKIES_FILE)) {
     return ["--cookies", COOKIES_FILE];
   }
-  // Firefox 的 cookie 不加密，不受 Windows DPAPI 限制
   return ["--cookies-from-browser", "firefox"];
 }
 
-/**
- * 解析视频链接，提取视频元信息（支持 YouTube / 抖音 / 等 yt-dlp 兼容平台）
- */
-export async function extractVideoInfo(url: string): Promise<VideoInfo> {
-  const args = [
-    "--dump-json",
-    "--no-playlist",
-    ...getCookieArgs(),
-    url,
-  ];
-  const { stdout } = await execFileAsync(YT_DLP_PATH, args);
+// ─── yt-dlp 模式（本地开发） ───
 
+async function extractVideoInfoYtdlp(url: string): Promise<VideoInfo> {
+  const args = ["--dump-json", "--no-playlist", ...getCookieArgs(), url];
+  const { stdout } = await execFileAsync(YT_DLP_PATH, args);
   const data = JSON.parse(stdout);
   return {
     id: data.id,
@@ -65,53 +70,117 @@ export async function extractVideoInfo(url: string): Promise<VideoInfo> {
   };
 }
 
-/**
- * 下载音频（仅音频，不下载视频）
- * 不再尝试下载字幕，统一使用 Whisper ASR 转写
- */
-export async function downloadAudio(url: string): Promise<ProcessResult> {
+async function downloadAudioYtdlp(url: string): Promise<ProcessResult> {
+  await ensureTempDir();
+  const info = await extractVideoInfoYtdlp(url);
+  const outputTemplate = path.join(TEMP_DIR, `${info.id}.%(ext)s`);
+
+  await execFileAsync(YT_DLP_PATH, [
+    "-f", "bestaudio[ext=m4a]/bestaudio",
+    "--output", outputTemplate,
+    "--no-playlist",
+    ...getCookieArgs(),
+    url,
+  ]);
+
+  const audioPath = path.join(TEMP_DIR, `${info.id}.m4a`);
+  return { info, audioPath, subtitlePath: null };
+}
+
+// ─── ytdl-core 模式（serverless 部署） ───
+
+async function downloadAudioYtdlCore(url: string): Promise<ProcessResult> {
+  const ytdl = (await import("@distube/ytdl-core")).default;
   await ensureTempDir();
 
+  const info = await ytdl.getInfo(url);
+  const videoDetails = info.videoDetails;
+  const videoInfo: VideoInfo = {
+    id: videoDetails.videoId,
+    title: videoDetails.title,
+    duration: parseInt(videoDetails.lengthSeconds),
+    thumbnail: videoDetails.thumbnails?.[videoDetails.thumbnails.length - 1]?.url || "",
+    uploader: videoDetails.author?.name || videoDetails.ownerChannelName || "Unknown",
+  };
+
+  // 下载纯音频流
+  const audioFormat = ytdl.chooseFormat(info.formats, { filter: "audioonly", quality: "highestaudio" });
+  const ext = audioFormat.container || "m4a";
+  const audioPath = path.join(TEMP_DIR, `${videoInfo.id}.${ext}`);
+
+  const stream = ytdl.downloadFromInfo(info, { format: audioFormat });
+  const writeStream = (await import("fs")).createWriteStream(audioPath);
+
+  await new Promise<void>((resolve, reject) => {
+    stream.pipe(writeStream);
+    writeStream.on("finish", resolve);
+    writeStream.on("error", reject);
+    stream.on("error", reject);
+  });
+
+  return { info: videoInfo, audioPath, subtitlePath: null };
+}
+
+// ─── 统一入口 ───
+
+export async function extractVideoInfo(url: string): Promise<VideoInfo> {
+  if (await isYtdlpAvailable()) {
+    return extractVideoInfoYtdlp(url);
+  }
+  // serverless 模式：YouTube 用 ytdl-core
+  if (detectPlatform(url) === "youtube") {
+    const ytdl = (await import("@distube/ytdl-core")).default;
+    const info = await ytdl.getInfo(url);
+    const vd = info.videoDetails;
+    return {
+      id: vd.videoId,
+      title: vd.title,
+      duration: parseInt(vd.lengthSeconds),
+      thumbnail: vd.thumbnails?.[vd.thumbnails.length - 1]?.url || "",
+      uploader: vd.author?.name || vd.ownerChannelName || "Unknown",
+    };
+  }
+  throw new Error("serverless 环境不支持抖音视频处理");
+}
+
+export async function downloadAudio(url: string): Promise<ProcessResult> {
   const platform = detectPlatform(url);
+
   if (platform === "youtube") {
-    // YouTube 走 yt-dlp 流程
-    const info = await extractVideoInfo(url);
-    const outputTemplate = path.join(TEMP_DIR, `${info.id}.%(ext)s`);
+    if (await isYtdlpAvailable()) {
+      return downloadAudioYtdlp(url);
+    }
+    return downloadAudioYtdlCore(url);
+  }
 
-    await execFileAsync(YT_DLP_PATH, [
-      "-f", "bestaudio[ext=m4a]/bestaudio",
-      "--output", outputTemplate,
-      "--no-playlist",
-      ...getCookieArgs(),
-      url,
-    ]);
-
-    const audioPath = path.join(TEMP_DIR, `${info.id}.m4a`);
-
-    return { info, audioPath, subtitlePath: null };
-  } else {
-    // Douyin 走 Playwright 提取流程
+  // 抖音
+  if (await isYtdlpAvailable()) {
+    await ensureTempDir();
     const { extractDouyinInfo, downloadDouyinAudio } = await import("./douyin-processor");
     const { info, videoUrl } = await extractDouyinInfo(url);
     const audioPath = await downloadDouyinAudio(videoUrl, info.id);
     return { info, audioPath, subtitlePath: null };
   }
+
+  throw new Error("serverless 环境不支持抖音视频处理，请使用 YouTube 链接");
 }
 
-/**
- * 仅下载字幕（不下载视频），用于 YouTube 快速路径
- * 成功返回字幕文件路径，失败返回 null
- */
+// ─── 字幕下载（仅 yt-dlp 本地模式支持） ───
+
 export async function tryDownloadSubtitles(url: string): Promise<{
   info: VideoInfo;
   subtitlePath: string | null;
 }> {
+  // serverless 环境跳过字幕下载，直接走 SenseVoice
+  if (!(await isYtdlpAvailable())) {
+    const info = await extractVideoInfo(url);
+    return { info, subtitlePath: null };
+  }
+
   await ensureTempDir();
-  const info = await extractVideoInfo(url);
+  const info = await extractVideoInfoYtdlp(url);
   const outputTemplate = path.join(TEMP_DIR, `${info.id}`);
 
-  // 先尝试手动字幕，再尝试自动字幕
-  // 扩大语言范围，提高命中率（命中 = 跳过 Whisper，省 10-60s）
   const subtitleStrategies = [
     ["--write-subs", "--sub-lang", "zh-Hans,zh-CN,zh-TW,zh,en,ja,ko"],
     ["--write-auto-subs", "--sub-lang", "zh-Hans,zh,en,ja,ko,de,fr,es,pt,ru,ar"],
@@ -129,26 +198,24 @@ export async function tryDownloadSubtitles(url: string): Promise<{
         url,
       ], { timeout: 30000 });
 
-      // 检查是否下载了字幕文件
       const possiblePaths = [
-            path.join(TEMP_DIR, `${info.id}.zh-Hans.srt`),
-            path.join(TEMP_DIR, `${info.id}.zh-CN.srt`),
-            path.join(TEMP_DIR, `${info.id}.zh-TW.srt`),
-            path.join(TEMP_DIR, `${info.id}.zh.srt`),
-            path.join(TEMP_DIR, `${info.id}.en.srt`),
-            path.join(TEMP_DIR, `${info.id}.ja.srt`),
-            path.join(TEMP_DIR, `${info.id}.ko.srt`),
-            path.join(TEMP_DIR, `${info.id}.de.srt`),
-            path.join(TEMP_DIR, `${info.id}.fr.srt`),
-            path.join(TEMP_DIR, `${info.id}.es.srt`),
-          ];
+        path.join(TEMP_DIR, `${info.id}.zh-Hans.srt`),
+        path.join(TEMP_DIR, `${info.id}.zh-CN.srt`),
+        path.join(TEMP_DIR, `${info.id}.zh-TW.srt`),
+        path.join(TEMP_DIR, `${info.id}.zh.srt`),
+        path.join(TEMP_DIR, `${info.id}.en.srt`),
+        path.join(TEMP_DIR, `${info.id}.ja.srt`),
+        path.join(TEMP_DIR, `${info.id}.ko.srt`),
+        path.join(TEMP_DIR, `${info.id}.de.srt`),
+        path.join(TEMP_DIR, `${info.id}.fr.srt`),
+        path.join(TEMP_DIR, `${info.id}.es.srt`),
+      ];
       for (const p of possiblePaths) {
         if (existsSync(p)) {
           return { info, subtitlePath: p };
         }
       }
     } catch {
-      // 该策略失败，尝试下一个
       continue;
     }
   }
@@ -156,9 +223,8 @@ export async function tryDownloadSubtitles(url: string): Promise<{
   return { info, subtitlePath: null };
 }
 
-/**
- * 完整流水线：下载音频 → 提取字幕文本（优先使用已有字幕，否则用 ASR）
- */
+// ─── 完整流水线（保留兼容） ───
+
 export async function extractTextFromVideo(
   url: string,
   transcribeAudioFn: (audioPath: string) => Promise<{ text: string; segments: Array<{ start: number; end: number; text: string }>; language: string }>
@@ -171,7 +237,6 @@ export async function extractTextFromVideo(
 }> {
   const result = await downloadAudio(url);
 
-  // 如果有字幕，直接解析 VTT
   if (result.subtitlePath) {
     const vttContent = await fs.readFile(result.subtitlePath, "utf-8");
     const { text, segments } = parseVTT(vttContent);
@@ -184,7 +249,6 @@ export async function extractTextFromVideo(
     };
   }
 
-  // 没有字幕，使用 Whisper ASR
   const transcription = await transcribeAudioFn(result.audioPath);
   return {
     info: result.info,
@@ -195,9 +259,8 @@ export async function extractTextFromVideo(
   };
 }
 
-/**
- * 简单的 VTT 解析器
- */
+// ─── VTT 解析 ───
+
 function parseVTT(content: string): { text: string; segments: Array<{ start: number; end: number; text: string }> } {
   const lines = content.split("\n");
   const segments: Array<{ start: number; end: number; text: string }> = [];
@@ -205,7 +268,6 @@ function parseVTT(content: string): { text: string; segments: Array<{ start: num
   let currentEnd = 0;
   const textLines: string[] = [];
 
-  // 跳过 WEBVTT 头
   let i = 0;
   while (i < lines.length && !lines[i].includes("-->")) {
     i++;
@@ -218,10 +280,8 @@ function parseVTT(content: string): { text: string; segments: Array<{ start: num
       currentStart = start;
       currentEnd = end;
     } else if (line === "") {
-      // 空行分隔
       continue;
     } else if (line && !line.match(/^\d+$/)) {
-      // 去除 VTT 标签
       const cleanText = line.replace(/<[^>]+>/g, "").trim();
       if (cleanText) {
         segments.push({ start: currentStart, end: currentEnd, text: cleanText });
@@ -237,32 +297,20 @@ function parseTimestamp(ts: string): number {
   const trimmed = ts.trim();
   const match = trimmed.match(/(\d+):(\d+):(\d+)\.(\d+)/);
   if (match) {
-    return (
-      parseInt(match[1]) * 3600 +
-      parseInt(match[2]) * 60 +
-      parseInt(match[3]) +
-      parseInt(match[4]) / 1000
-    );
+    return parseInt(match[1]) * 3600 + parseInt(match[2]) * 60 + parseInt(match[3]) + parseInt(match[4]) / 1000;
   }
-  // 也支持 mm:ss.ms 格式
   const match2 = trimmed.match(/(\d+):(\d+)\.(\d+)/);
   if (match2) {
-    return (
-      parseInt(match2[1]) * 60 +
-      parseInt(match2[2]) +
-      parseInt(match2[3]) / 1000
-    );
+    return parseInt(match2[1]) * 60 + parseInt(match2[2]) + parseInt(match2[3]) / 1000;
   }
   return 0;
 }
 
-/**
- * 清理临时文件
- */
+// ─── 清理 ───
+
 export async function cleanupTempFiles(videoId: string): Promise<void> {
   const files = await fs.readdir(TEMP_DIR);
   const targetFiles = files.filter((f) => f.startsWith(videoId));
-
   await Promise.all(
     targetFiles.map((f) =>
       fs.unlink(path.join(TEMP_DIR, f)).catch(() => {})
