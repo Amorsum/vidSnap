@@ -107,11 +107,13 @@ async function getTranscriptSmart(
       );
       return result;
     } catch (err) {
-      console.log("[sensevoice] 云端转写失败，降级到本地 Whisper:", err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.log("[sensevoice] 云端转写失败:", errMsg);
+      throw new Error(`云端转写失败: ${errMsg}`);
     }
   }
 
-  // 本地 Whisper 降级
+  // 本地 Whisper 降级（仅本地开发环境）
   const onWhisperProgress = (subPercent: number) => {
     send(progress("transcribing", mapPhaseProgress("transcribing", subPercent)));
   };
