@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { downloadAudio, cleanupTempFiles, tryDownloadSubtitles, extractVideoInfo } from "@/lib/video-processor";
-import { getTranscript, parseBuiltinSubtitle, type TranscriptResult } from "@/lib/transcriber";
+import { downloadAudio, cleanupTempFiles, type ProcessResult } from "@/lib/video-processor";
+import { getTranscript, type TranscriptResult } from "@/lib/transcriber";
 import { transcribeWithSenseVoice } from "@/lib/sensevoice";
-import { isValidUrl, detectPlatform } from "@/lib/url-utils";
+import { isValidUrl } from "@/lib/url-utils";
 import { callLLMStreaming } from "@/lib/llm";
 import { SUMMARIZE_SYSTEM_PROMPT, formatTranscriptForPrompt } from "@/lib/prompts";
 import { saveTranscript } from "@/lib/transcript-store";
 import { getCachedResult, cacheResult } from "@/lib/process-cache";
-import { existsSync } from "fs";
-import type { ProcessResult } from "@/lib/video-processor";
 
 function sseEvent(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`;
@@ -16,8 +14,8 @@ function sseEvent(data: unknown): string {
 
 // ─── 进度区间映射 ───
 // 0-25%: 下载
-// 25-70%: 转写（Whisper 上报 0-100 → 映射到 25-70）
-// 70-95%: AI 总结（LLM 流式 token 估算 → 映射到 70-95）
+// 25-70%: 转写
+// 70-95%: AI 总结
 // 95-100%: 收尾
 
 function progress(step: string, percent: number) {
@@ -26,9 +24,9 @@ function progress(step: string, percent: number) {
 
 function mapPhaseProgress(phase: "downloading" | "transcribing" | "analyzing", subPercent: number): number {
   switch (phase) {
-    case "downloading": return Math.round(5 + (subPercent / 100) * 20);      // 5-25%
-    case "transcribing": return Math.round(25 + (subPercent / 100) * 45);    // 25-70%
-    case "analyzing":    return Math.round(70 + (subPercent / 100) * 25);    // 70-95%
+    case "downloading": return Math.round(5 + (subPercent / 100) * 20);
+    case "transcribing": return Math.round(25 + (subPercent / 100) * 45);
+    case "analyzing":    return Math.round(70 + (subPercent / 100) * 25);
     default: return 0;
   }
 }
@@ -96,7 +94,6 @@ async function getTranscriptSmart(
   const hasCloudKey = !!process.env.SENSEVOICE_API_KEY;
 
   if (hasCloudKey) {
-    // 云端 SenseVoice 转写（快、准、免 GPU）
     send(progress("transcribing", mapPhaseProgress("transcribing", 0)));
     try {
       const result = await transcribeWithSenseVoice(
@@ -113,7 +110,7 @@ async function getTranscriptSmart(
     }
   }
 
-  // 本地 Whisper 降级（仅本地开发环境）
+  // 本地 Whisper 降级
   const onWhisperProgress = (subPercent: number) => {
     send(progress("transcribing", mapPhaseProgress("transcribing", subPercent)));
   };
@@ -124,7 +121,7 @@ async function getTranscriptSmart(
   });
 }
 
-// ─── 辅助：AI 总结 + 缓存 ───
+// ─── AI 总结 + 缓存 ───
 
 async function doAISummarize(
   info: { id: string; title: string; duration: number; thumbnail: string; uploader: string },
@@ -146,17 +143,15 @@ ${transcriptText}`;
   let fullText = "";
   const maxTokens = info.duration < 180 ? 4000 : 6000;
 
-  // 估算输入 token 数来推算总输出 token 数
   const estimatedInputTokens = Math.ceil(transcriptText.length / 2);
   const estimatedOutputTokens = Math.min(maxTokens, Math.max(500, estimatedInputTokens / 3));
   let tokenCount = 0;
 
   for await (const chunk of callLLMStreaming(SUMMARIZE_SYSTEM_PROMPT, userMessage, { maxTokens })) {
     fullText += chunk;
-    tokenCount += chunk.length; // 粗略估算
+    tokenCount += chunk.length;
     send({ type: "stream", text: chunk });
 
-    // LLM 进度：70-95%
     const subPercent = Math.min(100, Math.round((tokenCount / estimatedOutputTokens) * 100));
     send(progress("analyzing", mapPhaseProgress("analyzing", subPercent)));
   }
@@ -185,16 +180,15 @@ export async function POST(request: NextRequest) {
     const { url } = body as { url?: string };
 
     if (!url) {
-      return NextResponse.json({ success: false, error: "请提供视频链接" }, { status: 400 });
+      return NextResponse.json({ success: false, error: "请提供B站视频链接" }, { status: 400 });
     }
 
     if (!isValidUrl(url)) {
-      return NextResponse.json({ success: false, error: "目前仅支持 YouTube 和抖音链接" }, { status: 400 });
+      return NextResponse.json({ success: false, error: "目前仅支持B站（bilibili）视频链接" }, { status: 400 });
     }
 
-    const platform = detectPlatform(url);
-
     const encoder = new TextEncoder();
+
     const stream = new ReadableStream({
       async start(controller) {
         const send = (data: unknown) => {
@@ -202,93 +196,45 @@ export async function POST(request: NextRequest) {
         };
 
         try {
-          let info: { id: string; title: string; duration: number; thumbnail: string; uploader: string };
-          let transcript: { text: string; segments: { start: number; end: number; text: string }[]; source: "builtin" | "whisper" };
+          // 下载音频
+          send(progress("downloading", 0));
+          const processResult = await downloadAudio(url);
+          const info = processResult.info;
+          send(progress("downloading", 100));
+
+          // 检查缓存
+          const cached = getCachedResult(info.id);
+          let transcript: TranscriptResult;
           let aiResult: Record<string, unknown>;
-          let cached;
 
-          if (platform === "youtube") {
-            // ─── YouTube：提前提取信息，检查缓存 ───
-            send(progress("downloading", 0));
-            info = await extractVideoInfo(url);
-            send(progress("downloading", 10));
-            cached = getCachedResult(info.id);
-
-            if (cached) {
-              send(progress("downloading", 100));
-              transcript = {
-                text: cached.transcriptText,
-                segments: cached.transcriptSegments,
-                source: cached.transcriptSource,
-              };
-              aiResult = cached.result;
-              saveTranscript(info.id, transcript.segments, info);
-            } else {
-              const subtitleResult = await tryDownloadSubtitles(url);
-              info = subtitleResult.info;
-              send(progress("downloading", 100));
-
-              if (subtitleResult.subtitlePath && existsSync(subtitleResult.subtitlePath)) {
-                transcript = await parseBuiltinSubtitle(subtitleResult.subtitlePath);
-              } else {
-                // 下载音频
-                const processResult = await downloadAudio(url);
-                info = processResult.info;
-
-                // 智能转写：SenseVoice 云 API 优先，本地 Whisper 降级
-                transcript = await getTranscriptSmart(processResult, send);
-              }
-
-              if (transcript.segments.length === 0) {
-                await cleanupTempFiles(info.id);
-                send({ type: "error", message: "该视频没有检测到语音内容（可能是纯音乐或无声视频），无法生成文字总结" });
-                controller.close();
-                return;
-              }
-
-              send(progress("analyzing", mapPhaseProgress("analyzing", 0)));
-              aiResult = await doAISummarize(info, transcript, send);
-              await cleanupTempFiles(info.id);
-            }
+          if (cached) {
+            transcript = {
+              text: cached.transcriptText,
+              segments: cached.transcriptSegments,
+              source: cached.transcriptSource,
+            };
+            aiResult = cached.result;
+            saveTranscript(info.id, transcript.segments, info);
           } else {
-            // ─── 抖音：下载音频（Playwright 提取信息），然后检查缓存 ───
-            send(progress("downloading", 0));
-            const processResult = await downloadAudio(url);
-            info = processResult.info;
-            send(progress("downloading", 100));
+            // 智能转写
+            const isShortVideo = info.duration < 180;
+            const model = isShortVideo && process.env.WHISPER_MODEL !== "tiny" ? "tiny" : undefined;
+            transcript = await getTranscriptSmart(processResult, send, { model, isShortVideo });
 
-            cached = getCachedResult(info.id);
-            if (cached) {
-              transcript = {
-                text: cached.transcriptText,
-                segments: cached.transcriptSegments,
-                source: cached.transcriptSource,
-              };
-              aiResult = cached.result;
-              saveTranscript(info.id, transcript.segments, info);
-            } else {
-              const isShortVideo = info.duration < 180;
-              const model = isShortVideo && process.env.WHISPER_MODEL !== "tiny" ? "tiny" : undefined;
-
-              // 智能转写：SenseVoice 云 API 优先，本地 Whisper 降级
-              transcript = await getTranscriptSmart(processResult, send, { model, isShortVideo });
-
-              if (transcript.segments.length === 0) {
-                await cleanupTempFiles(info.id);
-                send({ type: "error", message: "该视频没有检测到语音内容（可能是纯音乐或无声视频），无法生成文字总结" });
-                controller.close();
-                return;
-              }
-
-              send(progress("analyzing", mapPhaseProgress("analyzing", 0)));
-              aiResult = await doAISummarize(info, transcript, send);
+            if (transcript.segments.length === 0) {
               await cleanupTempFiles(info.id);
+              send({ type: "error", message: "该视频没有检测到语音内容（可能是纯音乐或无声视频），无法生成文字总结" });
+              controller.close();
+              return;
             }
+
+            // AI 总结
+            send(progress("analyzing", mapPhaseProgress("analyzing", 0)));
+            aiResult = await doAISummarize(info, transcript, send);
+            await cleanupTempFiles(info.id);
           }
 
-          // 收尾
           send(progress("done", 100));
-
           send({
             type: "result",
             data: {
