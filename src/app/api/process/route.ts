@@ -181,6 +181,9 @@ ${transcriptText}`;
 
 export async function POST(request: NextRequest) {
   try {
+    console.log("[vidSnap] SENSEVOICE_API_KEY present:", !!process.env.SENSEVOICE_API_KEY);
+    console.log("[vidSnap] DEEPSEEK_API_KEY present:", !!process.env.DEEPSEEK_API_KEY);
+    
     const body = await request.json();
     const { url } = body as { url?: string };
 
