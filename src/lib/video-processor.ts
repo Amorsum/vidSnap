@@ -52,7 +52,8 @@ async function writeEnvCookies(): Promise<string | null> {
     if (eqIdx === -1) continue;
     const name = pair.substring(0, eqIdx).trim();
     const value = pair.substring(eqIdx + 1).trim();
-    lines.push(`.youtube.com\tTRUE\t/\tTRUE\t0\t${name}\t${value}`);
+    // Netscape 格式: domain  flag  path  secure  expiration  name  value
+    lines.push(`.youtube.com\tTRUE\t/\tFALSE\t0\t${name}\t${value}`);
   }
 
   await fs.writeFile(ENV_COOKIES_FILE, lines.join("\n"));
@@ -71,7 +72,11 @@ async function getCookieArgs(): Promise<string[]> {
 }
 
 function getBaseArgs(): string[] {
-  return ["--js-runtimes", `node:${process.execPath}`];
+  return [
+    // 伪装成移动端浏览器，绕过 YouTube 的 bot 检测
+    "--extractor-args", "youtube:player_client=android",
+    "--user-agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+  ];
 }
 
 // ─── 视频信息提取 ───
