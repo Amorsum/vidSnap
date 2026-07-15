@@ -42,9 +42,14 @@ function ensureTempDir(): Promise<string> {
  */
 async function writeEnvCookies(): Promise<string | null> {
   const cookieStr = process.env.YOUTUBE_COOKIES;
-  if (!cookieStr) return null;
-  // 直接写入，支持浏览器扩展导出的 Netscape 格式
+  console.log("[vidSnap] YOUTUBE_COOKIES length:", cookieStr?.length || 0);
+  if (!cookieStr || cookieStr.length < 50) {
+    console.log("[vidSnap] YOUTUBE_COOKIES too short or missing, skipping");
+    return null;
+  }
   await fs.writeFile(ENV_COOKIES_FILE, cookieStr);
+  const stat = await fs.stat(ENV_COOKIES_FILE).catch(() => null);
+  console.log("[vidSnap] cookies file written:", ENV_COOKIES_FILE, "size:", stat?.size);
   return ENV_COOKIES_FILE;
 }
 
@@ -61,9 +66,7 @@ async function getCookieArgs(): Promise<string[]> {
 
 function getBaseArgs(): string[] {
   return [
-    // 伪装成移动端浏览器，绕过 YouTube 的 bot 检测
-    "--extractor-args", "youtube:player_client=android",
-    "--user-agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+    "--extractor-args", "youtube:player_client=ios",
   ];
 }
 
