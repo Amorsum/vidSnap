@@ -71,7 +71,7 @@ async function getCookieArgs(): Promise<string[]> {
 }
 
 function getBaseArgs(): string[] {
-  return ["--js-runtimes", "node"];
+  return ["--js-runtimes", `node:${process.execPath}`];
 }
 
 // ─── 视频信息提取 ───
