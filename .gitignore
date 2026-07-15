@@ -40,6 +40,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# binary downloads
+bin/
+
 # temporary video/audio files
 /tmp
 

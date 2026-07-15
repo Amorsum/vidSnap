@@ -1,5 +1,5 @@
 [build]
-  command = "npm run build"
+  command = "bash scripts/download-ytdlp.sh && npm run build"
   publish = ".next"
 
 [build.environment]

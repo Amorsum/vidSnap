@@ -9,22 +9,9 @@ import { detectPlatform } from "./url-utils";
 const execFileAsync = promisify(execFile);
 
 const TEMP_DIR = path.join(os.tmpdir(), "vidsnap");
-const YT_DLP_PATH = "yt-dlp";
+const LOCAL_YTDLP = path.join(process.cwd(), "bin", "yt-dlp");
+const YT_DLP_PATH = existsSync(LOCAL_YTDLP) ? LOCAL_YTDLP : "yt-dlp";
 const COOKIES_FILE = path.join(process.cwd(), "cookies.txt");
-
-// ─── 检测 yt-dlp 是否可用（serverless 环境没有）───
-
-let ytdlpAvailable: boolean | null = null;
-async function isYtdlpAvailable(): Promise<boolean> {
-  if (ytdlpAvailable !== null) return ytdlpAvailable;
-  try {
-    await execFileAsync(YT_DLP_PATH, ["--version"]);
-    ytdlpAvailable = true;
-  } catch {
-    ytdlpAvailable = false;
-  }
-  return ytdlpAvailable;
-}
 
 // ─── 类型 ───
 
@@ -55,9 +42,9 @@ function getCookieArgs(): string[] {
   return ["--cookies-from-browser", "firefox"];
 }
 
-// ─── yt-dlp 模式（本地开发） ───
+// ─── 视频信息提取 ───
 
-async function extractVideoInfoYtdlp(url: string): Promise<VideoInfo> {
+export async function extractVideoInfo(url: string): Promise<VideoInfo> {
   const args = ["--dump-json", "--no-playlist", ...getCookieArgs(), url];
   const { stdout } = await execFileAsync(YT_DLP_PATH, args);
   const data = JSON.parse(stdout);
@@ -70,123 +57,43 @@ async function extractVideoInfoYtdlp(url: string): Promise<VideoInfo> {
   };
 }
 
-async function downloadAudioYtdlp(url: string): Promise<ProcessResult> {
-  await ensureTempDir();
-  const info = await extractVideoInfoYtdlp(url);
-  const outputTemplate = path.join(TEMP_DIR, `${info.id}.%(ext)s`);
-
-  await execFileAsync(YT_DLP_PATH, [
-    "-f", "bestaudio[ext=m4a]/bestaudio",
-    "--output", outputTemplate,
-    "--no-playlist",
-    ...getCookieArgs(),
-    url,
-  ]);
-
-  const audioPath = path.join(TEMP_DIR, `${info.id}.m4a`);
-  return { info, audioPath, subtitlePath: null };
-}
-
-// ─── ytdl-core 模式（serverless 部署） ───
-
-function getYtdlCookieHeaders(): Record<string, string> | undefined {
-  const cookieStr = process.env.YOUTUBE_COOKIES;
-  if (!cookieStr) return undefined;
-  return { Cookie: cookieStr };
-}
-
-async function downloadAudioYtdlCore(url: string): Promise<ProcessResult> {
-  const ytdl = (await import("@distube/ytdl-core")).default;
-  await ensureTempDir();
-
-  const headers = getYtdlCookieHeaders();
-  const info = await ytdl.getInfo(url, { requestOptions: headers ? { headers } : undefined });
-  const videoDetails = info.videoDetails;
-  const videoInfo: VideoInfo = {
-    id: videoDetails.videoId,
-    title: videoDetails.title,
-    duration: parseInt(videoDetails.lengthSeconds),
-    thumbnail: videoDetails.thumbnails?.[videoDetails.thumbnails.length - 1]?.url || "",
-    uploader: videoDetails.author?.name || videoDetails.ownerChannelName || "Unknown",
-  };
-
-  // 下载纯音频流
-  const audioFormat = ytdl.chooseFormat(info.formats, { filter: "audioonly", quality: "highestaudio" });
-  const ext = audioFormat.container || "m4a";
-  const audioPath = path.join(TEMP_DIR, `${videoInfo.id}.${ext}`);
-
-  const stream = ytdl.downloadFromInfo(info, { format: audioFormat });
-  const writeStream = (await import("fs")).createWriteStream(audioPath);
-
-  await new Promise<void>((resolve, reject) => {
-    stream.pipe(writeStream);
-    writeStream.on("finish", resolve);
-    writeStream.on("error", reject);
-    stream.on("error", reject);
-  });
-
-  return { info: videoInfo, audioPath, subtitlePath: null };
-}
-
-// ─── 统一入口 ───
-
-export async function extractVideoInfo(url: string): Promise<VideoInfo> {
-  if (await isYtdlpAvailable()) {
-    return extractVideoInfoYtdlp(url);
-  }
-  // serverless 模式：YouTube 用 ytdl-core
-  if (detectPlatform(url) === "youtube") {
-    const ytdl = (await import("@distube/ytdl-core")).default;
-    const headers = getYtdlCookieHeaders();
-    const info = await ytdl.getInfo(url, { requestOptions: headers ? { headers } : undefined });
-    const vd = info.videoDetails;
-    return {
-      id: vd.videoId,
-      title: vd.title,
-      duration: parseInt(vd.lengthSeconds),
-      thumbnail: vd.thumbnails?.[vd.thumbnails.length - 1]?.url || "",
-      uploader: vd.author?.name || vd.ownerChannelName || "Unknown",
-    };
-  }
-  throw new Error("serverless 环境不支持抖音视频处理");
-}
+// ─── 音频下载 ───
 
 export async function downloadAudio(url: string): Promise<ProcessResult> {
+  await ensureTempDir();
   const platform = detectPlatform(url);
 
   if (platform === "youtube") {
-    if (await isYtdlpAvailable()) {
-      return downloadAudioYtdlp(url);
-    }
-    return downloadAudioYtdlCore(url);
-  }
+    const info = await extractVideoInfo(url);
+    const outputTemplate = path.join(TEMP_DIR, `${info.id}.%(ext)s`);
 
-  // 抖音
-  if (await isYtdlpAvailable()) {
-    await ensureTempDir();
-    const { extractDouyinInfo, downloadDouyinAudio } = await import("./douyin-processor");
-    const { info, videoUrl } = await extractDouyinInfo(url);
-    const audioPath = await downloadDouyinAudio(videoUrl, info.id);
+    await execFileAsync(YT_DLP_PATH, [
+      "-f", "bestaudio[ext=m4a]/bestaudio",
+      "--output", outputTemplate,
+      "--no-playlist",
+      ...getCookieArgs(),
+      url,
+    ]);
+
+    const audioPath = path.join(TEMP_DIR, `${info.id}.m4a`);
     return { info, audioPath, subtitlePath: null };
   }
 
-  throw new Error("serverless 环境不支持抖音视频处理，请使用 YouTube 链接");
+  // 抖音
+  const { extractDouyinInfo, downloadDouyinAudio } = await import("./douyin-processor");
+  const { info, videoUrl } = await extractDouyinInfo(url);
+  const audioPath = await downloadDouyinAudio(videoUrl, info.id);
+  return { info, audioPath, subtitlePath: null };
 }
 
-// ─── 字幕下载（仅 yt-dlp 本地模式支持） ───
+// ─── 字幕下载 ───
 
 export async function tryDownloadSubtitles(url: string): Promise<{
   info: VideoInfo;
   subtitlePath: string | null;
 }> {
-  // serverless 环境跳过字幕下载，直接走 SenseVoice
-  if (!(await isYtdlpAvailable())) {
-    const info = await extractVideoInfo(url);
-    return { info, subtitlePath: null };
-  }
-
   await ensureTempDir();
-  const info = await extractVideoInfoYtdlp(url);
+  const info = await extractVideoInfo(url);
   const outputTemplate = path.join(TEMP_DIR, `${info.id}`);
 
   const subtitleStrategies = [
@@ -231,7 +138,7 @@ export async function tryDownloadSubtitles(url: string): Promise<{
   return { info, subtitlePath: null };
 }
 
-// ─── 完整流水线（保留兼容） ───
+// ─── 完整流水线 ───
 
 export async function extractTextFromVideo(
   url: string,
@@ -248,13 +155,7 @@ export async function extractTextFromVideo(
   if (result.subtitlePath) {
     const vttContent = await fs.readFile(result.subtitlePath, "utf-8");
     const { text, segments } = parseVTT(vttContent);
-    return {
-      info: result.info,
-      text,
-      segments,
-      language: "auto",
-      source: "subtitles",
-    };
+    return { info: result.info, text, segments, language: "auto", source: "subtitles" };
   }
 
   const transcription = await transcribeAudioFn(result.audioPath);
@@ -277,9 +178,7 @@ function parseVTT(content: string): { text: string; segments: Array<{ start: num
   const textLines: string[] = [];
 
   let i = 0;
-  while (i < lines.length && !lines[i].includes("-->")) {
-    i++;
-  }
+  while (i < lines.length && !lines[i].includes("-->")) i++;
 
   for (; i < lines.length; i++) {
     const line = lines[i].trim();
