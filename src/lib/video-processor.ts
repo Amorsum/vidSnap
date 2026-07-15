@@ -39,7 +39,7 @@ function getCookieArgs(): string[] {
   if (existsSync(COOKIES_FILE)) {
     return ["--cookies", COOKIES_FILE];
   }
-  return ["--cookies-from-browser", "firefox"];
+  return [];
 }
 
 // ─── 视频信息提取 ───
