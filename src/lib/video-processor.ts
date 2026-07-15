@@ -29,9 +29,22 @@ export interface ProcessResult {
 // ─── 工具 ───
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const ENV_COOKIES_FILE = path.join(os.tmpdir(), "vidsnap_bilibili_cookies.txt");
 
 function ensureTempDir(): Promise<string> {
   return fs.mkdir(TEMP_DIR, { recursive: true }).then(() => TEMP_DIR);
+}
+
+async function writeEnvCookies(): Promise<string | null> {
+  const cookieStr = process.env.BILIBILI_COOKIES;
+  if (!cookieStr || cookieStr.length < 30) return null;
+  await fs.writeFile(ENV_COOKIES_FILE, cookieStr);
+  return ENV_COOKIES_FILE;
+}
+
+async function getCookieArgs(): Promise<string[]> {
+  const cookiesFile = await writeEnvCookies();
+  return cookiesFile ? ["--cookies", cookiesFile] : [];
 }
 
 function getBaseArgs(): string[] {
@@ -41,7 +54,7 @@ function getBaseArgs(): string[] {
 // ─── 视频信息提取 ───
 
 export async function extractVideoInfo(url: string): Promise<VideoInfo> {
-  const args = [...getBaseArgs(), "--dump-json", "--no-playlist", url];
+  const args = [...getBaseArgs(), "--dump-json", "--no-playlist", ...(await getCookieArgs()), url];
   const { stdout } = await execFileAsync(YT_DLP_PATH, args);
   const data = JSON.parse(stdout);
   return {
@@ -67,6 +80,7 @@ export async function downloadAudio(url: string): Promise<ProcessResult> {
     "-f", "bestaudio[ext=m4a]/bestaudio",
     "--output", outputTemplate,
     "--no-playlist",
+    ...(await getCookieArgs()),
     url,
   ]);
 
