@@ -89,11 +89,19 @@ async function downloadAudioYtdlp(url: string): Promise<ProcessResult> {
 
 // ─── ytdl-core 模式（serverless 部署） ───
 
+function getYtdlAgent() {
+  const cookieStr = process.env.YOUTUBE_COOKIES;
+  if (!cookieStr) return undefined;
+  // ytdl-core 支持直接传 cookie 字符串
+  return { cookie: cookieStr };
+}
+
 async function downloadAudioYtdlCore(url: string): Promise<ProcessResult> {
   const ytdl = (await import("@distube/ytdl-core")).default;
   await ensureTempDir();
 
-  const info = await ytdl.getInfo(url);
+  const agent = getYtdlAgent();
+  const info = await ytdl.getInfo(url, { agent });
   const videoDetails = info.videoDetails;
   const videoInfo: VideoInfo = {
     id: videoDetails.videoId,
@@ -108,7 +116,7 @@ async function downloadAudioYtdlCore(url: string): Promise<ProcessResult> {
   const ext = audioFormat.container || "m4a";
   const audioPath = path.join(TEMP_DIR, `${videoInfo.id}.${ext}`);
 
-  const stream = ytdl.downloadFromInfo(info, { format: audioFormat });
+  const stream = ytdl.downloadFromInfo(info, { format: audioFormat, agent });
   const writeStream = (await import("fs")).createWriteStream(audioPath);
 
   await new Promise<void>((resolve, reject) => {
@@ -130,7 +138,8 @@ export async function extractVideoInfo(url: string): Promise<VideoInfo> {
   // serverless 模式：YouTube 用 ytdl-core
   if (detectPlatform(url) === "youtube") {
     const ytdl = (await import("@distube/ytdl-core")).default;
-    const info = await ytdl.getInfo(url);
+    const agent = getYtdlAgent();
+    const info = await ytdl.getInfo(url, { agent });
     const vd = info.videoDetails;
     return {
       id: vd.videoId,
