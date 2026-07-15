@@ -36,6 +36,22 @@ yarn-error.log*
 # vercel
 .vercel
 
+# temporary video/audio files
+/tmp
+
+# cookies (contains browser session data)
+cookies.txt
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Python vendor packages
+scripts/_vendor/
+
+# TRAE internal
+.trae/
+
+# yt-dlp artifacts
+--dump-json
+*.dump
