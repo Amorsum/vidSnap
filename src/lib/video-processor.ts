@@ -31,21 +31,53 @@ export interface ProcessResult {
 
 // ─── 工具 ───
 
+const ENV_COOKIES_FILE = path.join(os.tmpdir(), "vidsnap_cookies.txt");
+
 function ensureTempDir(): Promise<string> {
   return fs.mkdir(TEMP_DIR, { recursive: true }).then(() => TEMP_DIR);
 }
 
-function getCookieArgs(): string[] {
+/**
+ * 将 YOUTUBE_COOKIES 环境变量写入 Netscape 格式的 cookies 文件
+ */
+async function writeEnvCookies(): Promise<string | null> {
+  const cookieStr = process.env.YOUTUBE_COOKIES;
+  if (!cookieStr) return null;
+
+  const lines = ["# Netscape HTTP Cookie File"];
+  const pairs = cookieStr.split(";").map((p) => p.trim()).filter(Boolean);
+
+  for (const pair of pairs) {
+    const eqIdx = pair.indexOf("=");
+    if (eqIdx === -1) continue;
+    const name = pair.substring(0, eqIdx).trim();
+    const value = pair.substring(eqIdx + 1).trim();
+    lines.push(`.youtube.com\tTRUE\t/\tTRUE\t0\t${name}\t${value}`);
+  }
+
+  await fs.writeFile(ENV_COOKIES_FILE, lines.join("\n"));
+  return ENV_COOKIES_FILE;
+}
+
+async function getCookieArgs(): Promise<string[]> {
   if (existsSync(COOKIES_FILE)) {
     return ["--cookies", COOKIES_FILE];
   }
+  const envCookies = await writeEnvCookies();
+  if (envCookies) {
+    return ["--cookies", envCookies];
+  }
   return [];
+}
+
+function getBaseArgs(): string[] {
+  return ["--js-runtimes", "node"];
 }
 
 // ─── 视频信息提取 ───
 
 export async function extractVideoInfo(url: string): Promise<VideoInfo> {
-  const args = ["--dump-json", "--no-playlist", ...getCookieArgs(), url];
+  const args = [...getBaseArgs(), "--dump-json", "--no-playlist", ...(await getCookieArgs()), url];
   const { stdout } = await execFileAsync(YT_DLP_PATH, args);
   const data = JSON.parse(stdout);
   return {
@@ -68,10 +100,11 @@ export async function downloadAudio(url: string): Promise<ProcessResult> {
     const outputTemplate = path.join(TEMP_DIR, `${info.id}.%(ext)s`);
 
     await execFileAsync(YT_DLP_PATH, [
+      ...getBaseArgs(),
       "-f", "bestaudio[ext=m4a]/bestaudio",
       "--output", outputTemplate,
       "--no-playlist",
-      ...getCookieArgs(),
+      ...(await getCookieArgs()),
       url,
     ]);
 
@@ -104,12 +137,13 @@ export async function tryDownloadSubtitles(url: string): Promise<{
   for (const strategy of subtitleStrategies) {
     try {
       await execFileAsync(YT_DLP_PATH, [
+        ...getBaseArgs(),
         "--skip-download",
         ...strategy,
         "--convert-subs", "srt",
         "--output", outputTemplate,
         "--no-playlist",
-        ...getCookieArgs(),
+        ...(await getCookieArgs()),
         url,
       ], { timeout: 30000 });
 
