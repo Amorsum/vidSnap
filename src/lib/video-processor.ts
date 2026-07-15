@@ -66,7 +66,8 @@ async function getCookieArgs(): Promise<string[]> {
 
 function getBaseArgs(): string[] {
   return [
-    "--extractor-args", "youtube:player_client=ios",
+    "--extractor-args", "youtube:player_client=default,tv",
+    "--force-ipv4",
   ];
 }
 
