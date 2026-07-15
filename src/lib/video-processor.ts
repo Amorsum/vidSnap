@@ -1,5 +1,6 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
+import os from "os";
 import path from "path";
 import fs from "fs/promises";
 import { existsSync } from "fs";
@@ -7,7 +8,7 @@ import { detectPlatform } from "./url-utils";
 
 const execFileAsync = promisify(execFile);
 
-const TEMP_DIR = path.join(process.cwd(), "tmp");
+const TEMP_DIR = path.join(os.tmpdir(), "vidsnap");
 const YT_DLP_PATH = "yt-dlp";
 const COOKIES_FILE = path.join(process.cwd(), "cookies.txt");
 
