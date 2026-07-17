@@ -26,9 +26,11 @@
 
 **Demo MVP 已完成**，核心链路跑通：视频链接 → 音频下载 → 智能转写 → AI 总结 → 追问对话。
 
-**当前公网 Demo：** `https://percent-pre-flower-revised.trycloudflare.com`（电脑重启后地址会变，用 `start.bat` 一键恢复）
+**当前公网 Demo：** `https://webcams-skills-filme-nova.trycloudflare.com`（电脑重启后地址会变，用 `start.bat` 一键恢复）
 
 **部署历程：** Vercel 登录失败 → Netlify 免费额度耗尽 + yt-dlp bot 检测 → 最终采用本地运行 + Cloudflare Tunnel 方案
+
+**最新修复：** 添加 SSE 心跳机制（每 15 秒），解决抖音处理时 Cloudflare 隧道超时断开的问题
 
 ## 快速开始
 
@@ -50,7 +52,8 @@ npm run dev
 ├── README.md                    # 项目简介
 ├── PRODUCT_PLAN.md              # 完整产品方案
 ├── docs/
-│   └── CONTEXT.md               # AI 助手项目上下文
+│   ├── CONTEXT.md               # AI 助手项目上下文
+│   └── 初赛报名贴.md             # TRAE 比赛初赛提交贴
 ├── src/
 │   ├── app/
 │   │   ├── page.tsx             # 产品首页
