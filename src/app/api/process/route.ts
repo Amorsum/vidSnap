@@ -195,6 +195,11 @@ export async function POST(request: NextRequest) {
           controller.enqueue(encoder.encode(sseEvent(data)));
         };
 
+        // 心跳机制：防止 Cloudflare 隧道 / 代理超时断开 SSE 连接
+        const heartbeatInterval = setInterval(() => {
+          send({ type: "heartbeat" });
+        }, 15000);
+
         try {
           // 下载音频
           send(progress("downloading", 0));
@@ -256,6 +261,7 @@ export async function POST(request: NextRequest) {
           const message = error instanceof Error ? error.message : "处理失败，请稍后重试";
           send({ type: "error", message });
         } finally {
+          clearInterval(heartbeatInterval);
           controller.close();
         }
       },

@@ -20,11 +20,17 @@
 - **视频处理**: yt-dlp（下载）+ FFmpeg（音频预处理）
 - **ASR 转写**: 硅基流动 SenseVoice API（云端）/ faster-whisper（本地降级）
 - **AI 引擎**: DeepSeek API（默认）/ Claude API（可选切换）
-- **部署**: 支持 Vercel（云端 SenseVoice）/ 本地运行（Whisper GPU）
+- **部署**: 本地运行 + Cloudflare Tunnel 内网穿透（生成公网访问链接）
 
 ## 当前状态
 
 **Demo MVP 已完成**，核心链路跑通：视频链接 → 音频下载 → 智能转写 → AI 总结 → 追问对话。
+
+**当前公网 Demo：** `https://webcams-skills-filme-nova.trycloudflare.com`（电脑重启后地址会变，用 `start.bat` 一键恢复）
+
+**部署历程：** Vercel 登录失败 → Netlify 免费额度耗尽 + yt-dlp bot 检测 → 最终采用本地运行 + Cloudflare Tunnel 方案
+
+**最新修复：** 添加 SSE 心跳机制（每 15 秒），解决抖音处理时 Cloudflare 隧道超时断开的问题
 
 ## 快速开始
 
@@ -46,7 +52,8 @@ npm run dev
 ├── README.md                    # 项目简介
 ├── PRODUCT_PLAN.md              # 完整产品方案
 ├── docs/
-│   └── CONTEXT.md               # AI 助手项目上下文
+│   ├── CONTEXT.md               # AI 助手项目上下文
+│   └── 初赛报名贴.md             # TRAE 比赛初赛提交贴
 ├── src/
 │   ├── app/
 │   │   ├── page.tsx             # 产品首页
@@ -58,11 +65,16 @@ npm run dev
 │       ├── sensevoice.ts        # SenseVoice 云端 API
 │       ├── transcriber.ts       # Whisper 本地转写
 │       ├── video-processor.ts   # yt-dlp 视频处理
+│       ├── douyin-processor.ts  # 抖音视频解析（Playwright）
 │       ├── prompts.ts           # Prompt 模板
 │       ├── process-cache.ts     # 结果缓存
 │       ├── transcript-store.ts  # 原文存储（追问）
 │       └── url-utils.ts         # URL 解析
-└── scripts/
-    ├── whisper_server.py        # Whisper 常驻服务器
-    └── whisper_asr.py           # Whisper 降级脚本
+├── scripts/
+│   ├── whisper_server.py        # Whisper 常驻服务器
+│   ├── whisper_asr.py           # Whisper 降级脚本
+│   ├── douyin_playwright.py     # 抖音 Playwright 解析脚本
+│   └── download-ytdlp.sh        # yt-dlp 下载脚本（Netlify 构建用）
+├── start.bat                    # 一键启动脚本（本地 + Cloudflare Tunnel）
+└── cloudflared.exe              # Cloudflare Tunnel 客户端
 ```
