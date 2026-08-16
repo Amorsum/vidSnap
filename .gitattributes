@@ -1,0 +1,2 @@
+# Shell 脚本强制 LF 换行：Windows 下 core.autocrlf 转 CRLF 会破坏 bash 执行
+.claude/hooks/*.sh text eol=lf

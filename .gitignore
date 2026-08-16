@@ -55,3 +55,6 @@ scripts/_vendor/
 # yt-dlp artifacts
 --dump-json
 *.dump
+
+# 改进方案进度状态文件（update-plan 技能维护，勿提交）
+.claude/.plan-state
