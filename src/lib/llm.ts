@@ -261,7 +261,7 @@ export async function callLLMWithPrompt(
 export async function* callLLMStreaming(
   systemPrompt: string,
   userMessage: string,
-  options?: { maxTokens?: number }
+  options?: { maxTokens?: number; jsonMode?: boolean }
 ): AsyncGenerator<string> {
   const config = getConfig();
   const maxTokens = options?.maxTokens || 4096;
@@ -279,6 +279,8 @@ export async function* callLLMStreaming(
     max_tokens: maxTokens,
     temperature: 0.3,
     stream: true,
+    // JSON mode：强制模型输出合法 JSON（OpenAI 兼容）
+    ...(options?.jsonMode ? { response_format: { type: "json_object" } } : {}),
   };
 
   const response = await fetch(config.apiUrl, {

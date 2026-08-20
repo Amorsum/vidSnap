@@ -34,57 +34,12 @@ function mapPhaseProgress(phase: "downloading" | "transcribing" | "analyzing", s
   }
 }
 
-function parseJSONResponse<T>(text: string): T {
-  let cleaned = text;
-  const mdMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-  if (mdMatch) cleaned = mdMatch[1].trim();
-  
-  try {
-    return JSON.parse(cleaned) as T;
-  } catch {
-    try {
-      const fixed = fixTruncatedJSON(cleaned);
-      return JSON.parse(fixed) as T;
-    } catch {
-      const lastComma = cleaned.lastIndexOf(",");
-      if (lastComma > 0) {
-        try {
-          const partial = cleaned.slice(0, lastComma);
-          const fixed = fixTruncatedJSON(partial) + " ] }";
-          return JSON.parse(fixed) as T;
-        } catch { /* 放弃 */ }
-      }
-      throw new Error(`无法解析 AI 响应: ${cleaned.slice(0, 200)}...`);
-    }
-  }
-}
-
-function fixTruncatedJSON(text: string): string {
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  const stack: string[] = [];
-  
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (escape) { escape = false; continue; }
-    if (ch === "\\" && inString) { escape = true; continue; }
-    if (ch === '"' && !inString) { inString = true; continue; }
-    if (ch === '"' && inString) { inString = false; continue; }
-    if (inString) continue;
-    
-    if (ch === "{" || ch === "[") {
-      depth++;
-      stack.push(ch === "{" ? "}" : "]");
-    } else if (ch === "}" || ch === "]") {
-      depth--;
-      stack.pop();
-    }
-  }
-  
-  let result = text;
-  if (inString) result += '"';
-  return result + stack.reverse().join("");
+function parseAIJSON<T>(text: string): T {
+  const trimmed = text.trim();
+  // json mode 下基本不会有多余包裹，但保险起见去除 markdown 代码块
+  const mdMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  const raw = mdMatch ? mdMatch[1].trim() : trimmed;
+  return JSON.parse(raw) as T;
 }
 
 // ─── 智能转写：云 API 优先，本地降级 ───
@@ -150,7 +105,7 @@ ${transcriptText}`;
   const estimatedOutputTokens = Math.min(maxTokens, Math.max(500, estimatedInputTokens / 3));
   let tokenCount = 0;
 
-  for await (const chunk of callLLMStreaming(SUMMARIZE_SYSTEM_PROMPT, userMessage, { maxTokens })) {
+  for await (const chunk of callLLMStreaming(SUMMARIZE_SYSTEM_PROMPT, userMessage, { maxTokens, jsonMode: true })) {
     fullText += chunk;
     tokenCount += chunk.length; // 粗略估算
     send({ type: "stream", text: chunk });
@@ -162,7 +117,7 @@ ${transcriptText}`;
 
   send({ type: "stream_end" });
 
-  const aiResult = parseJSONResponse<Record<string, unknown>>(fullText);
+  const aiResult = parseAIJSON<Record<string, unknown>>(fullText);
 
   // 生成 embedding（失败降级，不影响主流程）
   const transcriptEmbeddings = await tryEmbedSegments(transcript.segments);
