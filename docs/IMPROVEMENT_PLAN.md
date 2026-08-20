@@ -147,6 +147,7 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-08-20 | A2 | 用 JSON mode（response_format json_object）替代手写 JSON 解析，删 60 行补括号逻辑 | src/lib/llm.ts, process/route.ts | ✅ 已完成 |
 | 2026-08-20 | 上线修复 | 修复抖音解析 NoneType 崩溃 + 多字段降级找视频地址 + 友好错误提示 | scripts/douyin_playwright.py | ✅ 已完成 |
 | 2026-08-20 | 上线修复 | 修复 dev 模式跨域致按钮不可用（切生产模式）+ URLInput 实时显示识别链接 | src/components/URLInput.tsx | ✅ 已完成 |
 | 2026-08-20 | 部署 | 配置 Cloudflare 永久隧道，绑定 vidsnap.amorsum.top（公网 HTTP 200） | cloudflared-config.yml, start.bat | ✅ 已完成 |
