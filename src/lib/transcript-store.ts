@@ -1,9 +1,17 @@
 /**
  * 内存 transcript 存储，供追问 API 使用
  * 格式：{ videoId → { segments, videoInfo, timestamp } }
+ * 每个 segment 可携带 embedding，供 RAG 追问检索使用
  */
+export interface StoredSegment {
+  start: number;
+  end: number;
+  text: string;
+  embedding?: number[];
+}
+
 interface StoredTranscript {
-  segments: { start: number; end: number; text: string }[];
+  segments: StoredSegment[];
   videoInfo: { id: string; title: string; duration: number; thumbnail: string; uploader: string };
   savedAt: number;
 }
@@ -25,9 +33,14 @@ function cleanup() {
 export function saveTranscript(
   videoId: string,
   segments: { start: number; end: number; text: string }[],
-  videoInfo: { id: string; title: string; duration: number; thumbnail: string; uploader: string }
+  videoInfo: { id: string; title: string; duration: number; thumbnail: string; uploader: string },
+  embeddings?: number[][]
 ): void {
-  store.set(videoId, { segments, videoInfo, savedAt: Date.now() });
+  const storedSegments: StoredSegment[] = segments.map((seg, i) => ({
+    ...seg,
+    embedding: embeddings?.[i],
+  }));
+  store.set(videoId, { segments: storedSegments, videoInfo, savedAt: Date.now() });
   // 每次保存时顺带清理过期记录
   if (store.size > 50) cleanup();
 }

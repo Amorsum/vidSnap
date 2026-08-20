@@ -6,6 +6,7 @@ import { isValidUrl, detectPlatform } from "@/lib/url-utils";
 import { callLLMStreaming } from "@/lib/llm";
 import { SUMMARIZE_SYSTEM_PROMPT, formatTranscriptForPrompt } from "@/lib/prompts";
 import { saveTranscript } from "@/lib/transcript-store";
+import { tryEmbedSegments } from "@/lib/embeddings";
 import { getCachedResult, cacheResult } from "@/lib/process-cache";
 import { existsSync } from "fs";
 import type { ProcessResult } from "@/lib/video-processor";
@@ -163,12 +164,16 @@ ${transcriptText}`;
 
   const aiResult = parseJSONResponse<Record<string, unknown>>(fullText);
 
-  saveTranscript(info.id, transcript.segments, info);
+  // 生成 embedding（失败降级，不影响主流程）
+  const transcriptEmbeddings = await tryEmbedSegments(transcript.segments);
+
+  saveTranscript(info.id, transcript.segments, info, transcriptEmbeddings);
   cacheResult(info.id, {
     video: info,
     transcriptSource: transcript.source,
     transcriptText: transcript.text,
     transcriptSegments: transcript.segments,
+    transcriptEmbeddings,
     result: aiResult,
   });
 
@@ -225,7 +230,7 @@ export async function POST(request: NextRequest) {
                 source: cached.transcriptSource,
               };
               aiResult = cached.result;
-              saveTranscript(info.id, transcript.segments, info);
+              saveTranscript(info.id, transcript.segments, info, cached.transcriptEmbeddings);
             } else {
               const subtitleResult = await tryDownloadSubtitles(url);
               info = subtitleResult.info;
@@ -268,7 +273,7 @@ export async function POST(request: NextRequest) {
                 source: cached.transcriptSource,
               };
               aiResult = cached.result;
-              saveTranscript(info.id, transcript.segments, info);
+              saveTranscript(info.id, transcript.segments, info, cached.transcriptEmbeddings);
             } else {
               const isShortVideo = info.duration < 180;
               const model = isShortVideo && process.env.WHISPER_MODEL !== "tiny" ? "tiny" : undefined;

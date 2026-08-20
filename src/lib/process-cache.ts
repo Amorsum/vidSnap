@@ -20,6 +20,7 @@ interface CachedProcessResult {
   transcriptSource: "builtin" | "whisper";
   transcriptText: string;
   transcriptSegments: TranscriptSegment[];
+  transcriptEmbeddings?: number[][];
   result: Record<string, unknown>;
   savedAt: number;
 }
