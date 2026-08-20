@@ -147,4 +147,9 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-08-20 | 上线修复 | 修复抖音解析 NoneType 崩溃 + 多字段降级找视频地址 + 友好错误提示 | scripts/douyin_playwright.py | ✅ 已完成 |
+| 2026-08-20 | 上线修复 | 修复 dev 模式跨域致按钮不可用（切生产模式）+ URLInput 实时显示识别链接 | src/components/URLInput.tsx | ✅ 已完成 |
+| 2026-08-20 | 部署 | 配置 Cloudflare 永久隧道，绑定 vidsnap.amorsum.top（公网 HTTP 200） | cloudflared-config.yml, start.bat | ✅ 已完成 |
+| 2026-08-20 | A1 | 修复超长字幕触发 embedding 500（截断+分批），真机验证 RAG 向量检索生效 | src/lib/embeddings.ts | ✅ 已完成 |
+| 2026-08-20 | A1 | 追问改造成向量检索 RAG + 引用溯源（三级降级），tsc+build 通过 | src/lib/embeddings.ts, rag.ts, followup/route.ts | ✅ 已完成 |
 | 2026-08-16 | 初始化 | 建立改进方案文档 + update-plan 技能 + Stop 钩子自动更新机制 | docs/IMPROVEMENT_PLAN.md, .claude/ | ✅ 已完成 |
