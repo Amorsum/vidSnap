@@ -80,35 +80,59 @@ async def extract_douyin_info(url):
 
 def parse_video_info(data, video_id):
     """解析 API 返回的视频数据"""
-    aweme = data.get("aweme_detail", {})
-    
+    aweme = data.get("aweme_detail") or {}
+
     result = {
         "id": video_id,
-        "title": aweme.get("desc", ""),
-        "duration": aweme.get("duration", 0),
+        "title": aweme.get("desc") or "",
+        "duration": aweme.get("duration") or 0,
         "thumbnail": "",
         "uploader": "",
         "video_url": None,
         "audio_url": None,
     }
 
-    author = aweme.get("author", {})
-    result["uploader"] = author.get("nickname", "")
+    author = aweme.get("author") or {}
+    result["uploader"] = author.get("nickname") or ""
 
-    video = aweme.get("video", {})
-    result["duration"] = video.get("duration", result["duration"])
+    video = aweme.get("video") or {}
+    result["duration"] = video.get("duration") or result["duration"]
 
     # 封面
-    cover = video.get("cover", {})
-    cover_urls = cover.get("url_list", [])
+    cover = video.get("cover") or {}
+    cover_urls = cover.get("url_list") or []
     if cover_urls:
         result["thumbnail"] = cover_urls[0]
 
-    # 视频播放地址
-    play_addr = video.get("play_addr", {})
-    url_list = play_addr.get("url_list", [])
-    if url_list:
-        result["video_url"] = url_list[0]
+    # 视频播放地址：抖音新版字段可能变化，依次降级尝试
+    video_url = None
+    for key in ("play_addr", "play_addr_h264", "download_addr"):
+        cand = video.get(key) or {}
+        url_list = cand.get("url_list") or []
+        if url_list:
+            video_url = url_list[0]
+            break
+    # 兜底：bit_rate 数组里的 play_addr
+    if not video_url:
+        for br in video.get("bit_rate") or []:
+            pa = br.get("play_addr") or {}
+            url_list = pa.get("url_list") or []
+            if url_list:
+                video_url = url_list[0]
+                break
+
+    result["video_url"] = video_url
+
+    if not video_url:
+        filter_detail = data.get("filter_detail") or {}
+        reason = filter_detail.get("filter_reason") or ""
+        msg = (
+            f"该视频不可用（{reason}），可能仅作者可见/审核中/已删除"
+            if reason
+            else "未能获取视频播放地址"
+        )
+        print(f"[douyin] {msg}", file=sys.stderr)
+        result["error"] = msg
 
     return result
 
@@ -131,7 +155,7 @@ def main():
         video_id = match.group(1) if match else "unknown"
 
         info = parse_video_info(data, video_id)
-        print(json.dumps(info, ensure_ascii=False))
+        print(json.dumps(info))
 
     except Exception as e:
         print(json.dumps({"error": str(e)}))
