@@ -58,3 +58,6 @@ scripts/_vendor/
 
 # 改进方案进度状态文件（update-plan 技能维护，勿提交）
 .claude/.plan-state
+
+# Cloudflare 隧道配置（含凭据路径，勿提交；用 cloudflared-config.example.yml 作模板）
+cloudflared-config.yml

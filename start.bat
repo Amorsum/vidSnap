@@ -5,6 +5,6 @@ start /min cmd /k "cd /d d:\learning\GitHub\vidSnap && node ./node_modules/next/
 echo 2. Waiting for server to start...
 timeout /t 5 /nobreak >nul
 echo 3. Starting Cloudflare Tunnel...
-start /min cmd /k "cd /d d:\learning\GitHub\vidSnap && .\cloudflared.exe tunnel --protocol http2 --edge-ip-version 4 --url http://127.0.0.1:3000"
+start /min cmd /k "cd /d d:\learning\GitHub\vidSnap && .\cloudflared.exe tunnel --config cloudflared-config.yml run"
 echo VidSnap is starting! Check the new tunnel URL from the Cloudflare console window.
 pause
