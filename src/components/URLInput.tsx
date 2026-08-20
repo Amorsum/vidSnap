@@ -11,6 +11,10 @@ interface URLInputProps {
 export default function URLInput({ onSubmit, isLoading }: URLInputProps) {
   const [value, setValue] = useState("");
 
+  // 实时提取：从粘贴的混杂文本中识别出 URL（如抖音分享文案）
+  const extractedUrl = value.trim() ? extractUrl(value) : "";
+  const showExtracted = extractedUrl !== value.trim() && extractedUrl !== value;
+
   const handleSubmit = () => {
     if (!value.trim() || isLoading) return;
     onSubmit(extractUrl(value));
@@ -39,6 +43,11 @@ export default function URLInput({ onSubmit, isLoading }: URLInputProps) {
           </button>
         </div>
       </div>
+      {showExtracted && (
+        <div className="mt-2 rounded-lg border border-[#00cec9]/20 bg-[#00cec9]/5 px-3 py-2 text-xs text-[#00cec9]">
+          🔍 已自动识别链接：<span className="font-mono">{extractedUrl}</span>
+        </div>
+      )}
     </div>
   );
 }
