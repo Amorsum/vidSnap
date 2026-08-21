@@ -4,6 +4,8 @@ import { getTranscript, parseBuiltinSubtitle, type TranscriptResult } from "@/li
 import { transcribeWithSenseVoice } from "@/lib/sensevoice";
 import { isValidUrl, detectPlatform } from "@/lib/url-utils";
 import { callLLMStreaming } from "@/lib/llm";
+import type { TokenUsage } from "@/lib/llm";
+import { calcCost } from "@/lib/observability";
 import { SUMMARIZE_SYSTEM_PROMPT, formatTranscriptForPrompt } from "@/lib/prompts";
 import { saveTranscript } from "@/lib/transcript-store";
 import { tryEmbedSegments } from "@/lib/embeddings";
@@ -84,7 +86,8 @@ async function doAISummarize(
   info: { id: string; title: string; duration: number; thumbnail: string; uploader: string },
   transcript: { text: string; segments: { start: number; end: number; text: string }[]; source: "builtin" | "whisper" },
   send: (data: unknown) => void,
-): Promise<Record<string, unknown>> {
+): Promise<{ result: Record<string, unknown>; usage: TokenUsage | null; latencyMs: number }> {
+  const summarizeStart = Date.now();
   send({ type: "stream_start" });
 
   const transcriptText = formatTranscriptForPrompt(transcript.segments);
@@ -98,6 +101,7 @@ async function doAISummarize(
 ${transcriptText}`;
 
   let fullText = "";
+  let usage: TokenUsage | null = null;
   const maxTokens = info.duration < 180 ? 4000 : 6000;
 
   // 估算输入 token 数来推算总输出 token 数
@@ -105,7 +109,11 @@ ${transcriptText}`;
   const estimatedOutputTokens = Math.min(maxTokens, Math.max(500, estimatedInputTokens / 3));
   let tokenCount = 0;
 
-  for await (const chunk of callLLMStreaming(SUMMARIZE_SYSTEM_PROMPT, userMessage, { maxTokens, jsonMode: true })) {
+  for await (const chunk of callLLMStreaming(SUMMARIZE_SYSTEM_PROMPT, userMessage, {
+    maxTokens,
+    jsonMode: true,
+    onUsage: (u) => { usage = u; },
+  })) {
     fullText += chunk;
     tokenCount += chunk.length; // 粗略估算
     send({ type: "stream", text: chunk });
@@ -118,6 +126,7 @@ ${transcriptText}`;
   send({ type: "stream_end" });
 
   const aiResult = parseAIJSON<Record<string, unknown>>(fullText);
+  const latencyMs = Date.now() - summarizeStart;
 
   // 生成 embedding（失败降级，不影响主流程）
   const transcriptEmbeddings = await tryEmbedSegments(transcript.segments);
@@ -132,7 +141,7 @@ ${transcriptText}`;
     result: aiResult,
   });
 
-  return aiResult;
+  return { result: aiResult, usage, latencyMs };
 }
 
 // ─── POST 处理器 ───
@@ -169,6 +178,9 @@ export async function POST(request: NextRequest) {
           let transcript: { text: string; segments: { start: number; end: number; text: string }[]; source: "builtin" | "whisper" };
           let aiResult: Record<string, unknown>;
           let cached;
+          let summarizeUsage: TokenUsage | null = null;
+          let summarizeLatencyMs = 0;
+          const totalStart = Date.now();
 
           if (platform === "youtube") {
             // ─── YouTube：提前提取信息，检查缓存 ───
@@ -210,7 +222,10 @@ export async function POST(request: NextRequest) {
               }
 
               send(progress("analyzing", mapPhaseProgress("analyzing", 0)));
-              aiResult = await doAISummarize(info, transcript, send);
+              const summary = await doAISummarize(info, transcript, send);
+              aiResult = summary.result;
+              summarizeUsage = summary.usage;
+              summarizeLatencyMs = summary.latencyMs;
               await cleanupTempFiles(info.id);
             }
           } else {
@@ -244,13 +259,24 @@ export async function POST(request: NextRequest) {
               }
 
               send(progress("analyzing", mapPhaseProgress("analyzing", 0)));
-              aiResult = await doAISummarize(info, transcript, send);
+              const summary = await doAISummarize(info, transcript, send);
+              aiResult = summary.result;
+              summarizeUsage = summary.usage;
+              summarizeLatencyMs = summary.latencyMs;
               await cleanupTempFiles(info.id);
             }
           }
 
           // 收尾
           send(progress("done", 100));
+
+          const totalMs = Date.now() - totalStart;
+          const cost = summarizeUsage ? calcCost(summarizeUsage) : null;
+          if (summarizeUsage) {
+            console.log(
+              `[metrics] ${info.id} 总结完成: token ${summarizeUsage.totalTokens} (in ${summarizeUsage.promptTokens}/out ${summarizeUsage.completionTokens}), 总耗时 ${totalMs}ms (总结 ${summarizeLatencyMs}ms), 成本 ¥${cost!.toFixed(4)}`
+            );
+          }
 
           send({
             type: "result",
@@ -267,6 +293,12 @@ export async function POST(request: NextRequest) {
               transcriptSegments: transcript.segments,
               result: aiResult,
               cached: !!cached,
+              metrics: {
+                totalMs,
+                summarizeMs: summarizeLatencyMs,
+                usage: summarizeUsage,
+                cost,
+              },
             },
           });
         } catch (error: unknown) {

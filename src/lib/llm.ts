@@ -6,6 +6,15 @@
 export type LLMProvider = "deepseek" | "claude";
 export type SummarizeMode = "summary" | "keypoints" | "translate";
 
+/** LLM 调用的 token 用量 */
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  /** 命中的 prompt 缓存 token 数（DeepSeek 缓存命中更便宜） */
+  cacheHitTokens: number;
+}
+
 interface LLMConfig {
   provider: LLMProvider;
   apiKey: string;
@@ -192,7 +201,7 @@ export async function callLLM(
 export async function callLLMWithPrompt(
   systemPrompt: string,
   userMessage: string,
-  options?: { maxTokens?: number; jsonMode?: boolean }
+  options?: { maxTokens?: number; jsonMode?: boolean; onUsage?: (usage: TokenUsage) => void }
 ): Promise<string> {
   const config = getConfig();
   const maxTokens = options?.maxTokens || 4096;
@@ -224,6 +233,14 @@ export async function callLLMWithPrompt(
     }
 
     const data = await response.json();
+    if (options?.onUsage && data.usage) {
+      options.onUsage({
+        promptTokens: data.usage.prompt_tokens || 0,
+        completionTokens: data.usage.completion_tokens || 0,
+        totalTokens: data.usage.total_tokens || 0,
+        cacheHitTokens: data.usage.prompt_cache_hit_tokens || 0,
+      });
+    }
     return data.choices?.[0]?.message?.content || "";
   }
 
@@ -262,7 +279,7 @@ export async function callLLMWithPrompt(
 export async function* callLLMStreaming(
   systemPrompt: string,
   userMessage: string,
-  options?: { maxTokens?: number; jsonMode?: boolean }
+  options?: { maxTokens?: number; jsonMode?: boolean; onUsage?: (usage: TokenUsage) => void }
 ): AsyncGenerator<string> {
   const config = getConfig();
   const maxTokens = options?.maxTokens || 4096;
@@ -282,6 +299,8 @@ export async function* callLLMStreaming(
     stream: true,
     // JSON mode：强制模型输出合法 JSON（OpenAI 兼容）
     ...(options?.jsonMode ? { response_format: { type: "json_object" } } : {}),
+    // 需要 token 用量时，让流式响应在末尾返回 usage
+    ...(options?.onUsage ? { stream_options: { include_usage: true } } : {}),
   };
 
   const response = await fetch(config.apiUrl, {
@@ -303,6 +322,7 @@ export async function* callLLMStreaming(
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let lastUsage: TokenUsage | null = null;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -316,10 +336,22 @@ export async function* callLLMStreaming(
       const trimmed = line.trim();
       if (!trimmed || !trimmed.startsWith("data: ")) continue;
       const data = trimmed.slice(6);
-      if (data === "[DONE]") return;
+      if (data === "[DONE]") {
+        if (lastUsage && options?.onUsage) options.onUsage(lastUsage);
+        return;
+      }
 
       try {
         const parsed = JSON.parse(data);
+        // 最后一个 chunk 可能只带 usage（无 content）
+        if (parsed.usage) {
+          lastUsage = {
+            promptTokens: parsed.usage.prompt_tokens || 0,
+            completionTokens: parsed.usage.completion_tokens || 0,
+            totalTokens: parsed.usage.total_tokens || 0,
+            cacheHitTokens: parsed.usage.prompt_cache_hit_tokens || 0,
+          };
+        }
         const content = parsed.choices?.[0]?.delta?.content;
         if (content) yield content;
       } catch {
@@ -327,4 +359,7 @@ export async function* callLLMStreaming(
       }
     }
   }
+
+  // 流意外结束（未收到 [DONE]）时也回调
+  if (lastUsage && options?.onUsage) options.onUsage(lastUsage);
 }
