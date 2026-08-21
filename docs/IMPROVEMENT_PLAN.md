@@ -69,7 +69,7 @@
 ### 🟠 代码质量 / 死代码
 
 - [ ] **两套废弃 API 路由**：`process/summarize`、`process/transcribe` 引用了不存在的旧模块
-- [ ] **手写 JSON 解析**：`fixTruncatedJSON` 手动补括号，脆弱，应换结构化输出
+- [x] **手写 JSON 解析**：`fixTruncatedJSON` 手动补括号，脆弱，应换结构化输出（A2 已用 json mode 替换）
 - [ ] **无测试、无日志聚合、无监控**
 - [ ] **`.env.example` 缺失**（README/CONTEXT 引用了它）
 - [ ] **小瑕疵**：Header GitHub 死链、根目录调试残留文件（`--dump-json`、`.dump`）
@@ -147,6 +147,7 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-08-20 | A3 | 建立总结质量评测集 + LLM-as-judge（幻觉率 0% / 召回率 100%），复用真实 prompt 零漂移 | scripts/eval/, src/lib/llm.ts | ✅ 已完成 |
 | 2026-08-20 | A2 | 用 JSON mode（response_format json_object）替代手写 JSON 解析，删 60 行补括号逻辑 | src/lib/llm.ts, process/route.ts | ✅ 已完成 |
 | 2026-08-20 | 上线修复 | 修复抖音解析 NoneType 崩溃 + 多字段降级找视频地址 + 友好错误提示 | scripts/douyin_playwright.py | ✅ 已完成 |
 | 2026-08-20 | 上线修复 | 修复 dev 模式跨域致按钮不可用（切生产模式）+ URLInput 实时显示识别链接 | src/components/URLInput.tsx | ✅ 已完成 |
