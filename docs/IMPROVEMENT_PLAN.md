@@ -147,6 +147,7 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-08-21 | 追问v2 | 追问升级：混合回答（自然衔接）+ 多轮上下文 + 对话历史UI + 加载动画，真机验证通过 | prompts.ts, conversation-store.ts, followup/route.ts, page.tsx, ResultPanel.tsx | ✅ 已完成 |
 | 2026-08-20 | A4 | 可观测性埋点：token 用量 + 成本核算 + 耗时统计（实测单视频 ¥0.0064 / token 1769 / 25.7s） | src/lib/llm.ts, observability.ts, route.ts | ✅ 已完成 |
 | 2026-08-20 | A3 | 建立总结质量评测集 + LLM-as-judge（幻觉率 0% / 召回率 100%），复用真实 prompt 零漂移 | scripts/eval/, src/lib/llm.ts | ✅ 已完成 |
 | 2026-08-20 | A2 | 用 JSON mode（response_format json_object）替代手写 JSON 解析，删 60 行补括号逻辑 | src/lib/llm.ts, process/route.ts | ✅ 已完成 |
