@@ -1,3 +1,8 @@
+interface Turn {
+  question: string;
+  answer: string;
+}
+
 interface ResultPanelProps {
   video: {
     id: string;
@@ -12,7 +17,7 @@ interface ResultPanelProps {
     segments: { title: string; start: number; end: number; points: { time: string; text: string }[] }[];
   };
   transcriptSource: "builtin" | "whisper";
-  followUpAnswer?: string;
+  conversation: Turn[];
   followUpLoading?: boolean;
 }
 
@@ -24,11 +29,29 @@ function formatDuration(seconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+/** 渲染回答文本，高亮 [MM:SS] 时间戳引用 */
+function renderAnswer(text: string) {
+  const parts = text.split(/(\[[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?\])/g);
+  return parts.map((part, i) => {
+    if (/^\[[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?\]$/.test(part)) {
+      return (
+        <span
+          key={i}
+          className="mx-0.5 rounded bg-[#00cec9]/20 px-1 font-mono text-[11px] text-[#00cec9]"
+        >
+          {part}
+        </span>
+      );
+    }
+    return <span key={i}>{part}</span>;
+  });
+}
+
 export default function ResultPanel({
   video,
   result,
   transcriptSource,
-  followUpAnswer,
+  conversation,
   followUpLoading,
 }: ResultPanelProps) {
   const answer = result as {
@@ -108,21 +131,37 @@ export default function ResultPanel({
         )}
       </div>
 
-      {/* 追问答案 */}
-      {(followUpAnswer || followUpLoading) && (
+      {/* 追问对话历史 */}
+      {(conversation.length > 0 || followUpLoading) && (
         <div className="rounded-2xl border border-[#00cec9]/20 bg-[#00cec9]/5 p-6">
           <div className="mb-4 flex items-center gap-2">
             <span className="text-lg">💬</span>
-            <h3 className="text-sm font-medium text-white">追问回答</h3>
+            <h3 className="text-sm font-medium text-white">追问对话</h3>
           </div>
-          {followUpLoading ? (
-            <div className="flex items-center gap-2">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#00cec9] border-t-transparent" />
-              <span className="text-sm text-[#a0a0b0]">思考中...</span>
-            </div>
-          ) : (
-            <p className="text-sm leading-relaxed text-[#ccc]">{followUpAnswer}</p>
-          )}
+          <div className="space-y-5">
+            {conversation.map((turn, i) => (
+              <div key={i} className="space-y-2">
+                <div className="flex items-start gap-2">
+                  <span className="mt-0.5 flex-shrink-0 rounded bg-[#00cec9]/20 px-2 py-0.5 text-[10px] text-[#00cec9]">
+                    问
+                  </span>
+                  <p className="text-sm text-white">{turn.question}</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="mt-0.5 flex-shrink-0 rounded bg-[#6c5ce7]/20 px-2 py-0.5 text-[10px] text-[#a29bfe]">
+                    答
+                  </span>
+                  <p className="text-sm leading-relaxed text-[#ccc]">{renderAnswer(turn.answer)}</p>
+                </div>
+              </div>
+            ))}
+            {followUpLoading && (
+              <div className="flex items-center gap-2">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#00cec9] border-t-transparent" />
+                <span className="text-sm text-[#a0a0b0]">思考中...</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

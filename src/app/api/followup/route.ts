@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTranscript } from "@/lib/transcript-store";
+import { getConversation, saveTurn } from "@/lib/conversation-store";
 import { callLLMWithPrompt } from "@/lib/llm";
 import { FOLLOWUP_SYSTEM_PROMPT, formatTranscriptForPrompt } from "@/lib/prompts";
 import { embedQuery } from "@/lib/embeddings";
@@ -70,17 +71,29 @@ export async function POST(request: NextRequest) {
 
     const { context, source } = await retrieveContext(stored.segments, question);
 
+    // 多轮上下文：取最近 3 轮对话，让模型理解指代
+    const history = getConversation(videoId, 3);
+    const historyText = history.length
+      ? history.map((t) => `问：${t.question}\n答：${t.answer}`).join("\n\n")
+      : "";
+
     const userMessage = `视频标题：${stored.videoInfo.title}
 
-以下是与你的问题相关的视频字幕片段（带时间戳）：
+${historyText ? `之前的对话：
+
+${historyText}
+
+` : ""}以下是与你的问题相关的视频字幕片段（带时间戳）：
 
 ${context}
 
-用户问题：${question}`;
+用户当前问题：${question}`;
 
     const answer = await callLLMWithPrompt(FOLLOWUP_SYSTEM_PROMPT, userMessage, {
-      maxTokens: 1000,
+      maxTokens: 1500,
     });
+
+    saveTurn(videoId, question, answer);
 
     return NextResponse.json({ success: true, answer, videoId, retrievalSource: source });
   } catch (error: unknown) {

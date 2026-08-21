@@ -34,7 +34,7 @@ export default function Home() {
   const [result, setResult] = useState<ProcessResult | null>(null);
   const [streamingText, setStreamingText] = useState<string>("");
 
-  const [followUpAnswer, setFollowUpAnswer] = useState<string>();
+  const [conversation, setConversation] = useState<{ question: string; answer: string }[]>([]);
   const [followUpLoading, setFollowUpLoading] = useState(false);
 
   const handleSubmit = useCallback(async (url: string) => {
@@ -44,7 +44,7 @@ export default function Home() {
     setStreamingText("");
     setProgressStep("downloading");
     setProgressPercent(0);
-    setFollowUpAnswer(undefined);
+    setConversation([]);
 
     try {
       const response = await fetch("/api/process", {
@@ -119,8 +119,7 @@ export default function Home() {
   const handleFollowUp = useCallback(async (question: string) => {
     if (!result) return;
     setFollowUpLoading(true);
-    setFollowUpAnswer(undefined);
-    
+
     try {
       const response = await fetch("/api/followup", {
         method: "POST",
@@ -129,12 +128,12 @@ export default function Home() {
       });
       const data = await response.json();
       if (data.success) {
-        setFollowUpAnswer(data.answer);
+        setConversation((prev) => [...prev, { question, answer: data.answer }]);
       } else {
-        setFollowUpAnswer(data.error || "追问失败");
+        setConversation((prev) => [...prev, { question, answer: data.error || "追问失败" }]);
       }
     } catch {
-      setFollowUpAnswer("网络请求失败，请稍后重试");
+      setConversation((prev) => [...prev, { question, answer: "网络请求失败，请稍后重试" }]);
     } finally {
       setFollowUpLoading(false);
     }
@@ -183,7 +182,7 @@ export default function Home() {
               video={result.video}
               result={result.result as { overall: string; videoType?: string; segments: { title: string; start: number; end: number; points: { time: string; text: string }[] }[] }}
               transcriptSource={result.transcriptSource}
-              followUpAnswer={followUpAnswer}
+              conversation={conversation}
               followUpLoading={followUpLoading}
             />
           </div>
@@ -207,7 +206,7 @@ export default function Home() {
         {/* 追问输入 */}
         {result && (
           <div className="mt-8">
-            <FollowUpInput onSubmit={handleFollowUp} isLoading={isLoading} />
+            <FollowUpInput onSubmit={handleFollowUp} isLoading={followUpLoading} />
           </div>
         )}
       </main>
