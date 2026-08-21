@@ -192,7 +192,7 @@ export async function callLLM(
 export async function callLLMWithPrompt(
   systemPrompt: string,
   userMessage: string,
-  options?: { maxTokens?: number }
+  options?: { maxTokens?: number; jsonMode?: boolean }
 ): Promise<string> {
   const config = getConfig();
   const maxTokens = options?.maxTokens || 4096;
@@ -206,6 +206,7 @@ export async function callLLMWithPrompt(
       ],
       max_tokens: maxTokens,
       temperature: 0.3,
+      ...(options?.jsonMode ? { response_format: { type: "json_object" } } : {}),
     };
 
     const response = await fetch(config.apiUrl, {
