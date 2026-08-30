@@ -9,7 +9,11 @@ description: VidSnap 功能测试：先按模块穷举测试用例（含预期�
 
 ## 阶段一：准备
 
-1. 确认生产服务运行在 `http://localhost:3000`（`curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/` 应为 200）。未运行则先启动（参考 `autostart.bat` 的方式，分离启动 + 轮询就绪）。
+1. 确认生产服务运行在 `http://localhost:3000`（`curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/` 应为 200）。**未运行时不要从 agent 自己的 shell 直接启动**（agent 任务结束时其进程树会被清理，服务会随之死亡）。必须用 WMI 完全分离启动：
+   ```bash
+   powershell -Command "\$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine='\"C:\Program Files\nodejs\node.exe\" node_modules\next\dist\bin\next start -p 3000 -H 0.0.0.0'; CurrentDirectory='d:\learning\GitHub\vidSnap'}; Write-Output ('PID: ' + \$r.ProcessId)"
+   ```
+   随后轮询 `curl http://localhost:3000/` 直到 200（最多约 30 秒）。
 2. 从 `.env.local` 读取 `ACCESS_CODE`（本地测试用，**测试报告与命令输出中不得明文出现该码**，用 `<访问码>` 代替）。
 3. 检查当前未提交改动（`git status --porcelain`）：有未提交的功能改动时，测试报告需注明「测试的是工作区版本」。
 
