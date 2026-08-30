@@ -102,6 +102,21 @@
 | B3 | 鉴权 + 额度管理（NextAuth） | 「用户体系 + API 额度控制」 |
 | B4 | 真正部署（Railway/Fly.io，容器跑 ffmpeg/yt-dlp） | 「容器化部署，24/7 在线」 |
 
+### 部署方案调研（2026-08-22）
+
+- **VPS/腾讯云**：国内节点内存够用（项目约 300-500MB 常驻，禁用本地 Whisper、只走 SenseVoice 云端），但 **YouTube 被墙**；海外/香港节点直连 YouTube，但抖音可能被地域限制（类似之前 B站 海外 412）。
+- **Cloudflare 局限**：Tunnel 只是「管道」，代码跑本地，电脑关机就挂；Pages/Workers 不适合（要跑 yt-dlp/ffmpeg 长任务）。
+- **结论**：暂缓云端部署，当前本地运行；待做「开机自启」（开机自动拉 Next.js + 隧道）。
+- **参照**：Teach Player（video.tpgofighting.top）= Next.js + Cloudflare CDN + 云端源站，印证「云端部署」才是 24/7 唯一解。
+
+### UI 后续优化点（待做）
+
+- [ ] 时间戳胶囊做成真正可点击跳转视频播放（Phase 3）
+- [ ] 流式分析中不展示裸 JSON，改友好提示
+- [ ] 移动端追问面板吸底 / 提前
+- [ ] 气泡加微信式小尾巴（伪元素）
+- [ ] 分段卡片标题 vs 要点字号对比再拉开
+
 ### 阶段 C：差异化加分（可选）
 
 - [ ] 浏览器插件一键总结（YouTube/B站）
@@ -147,6 +162,11 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-08-26 | 上线修复 | 封面加载失败兜底（🎬占位图）+ yt-dlp 加浏览器 UA 伪装（3处调用），缓解 YouTube 反爬识别 | ResultPanel.tsx, video-processor.ts | ✅ 已完成 |
+| 2026-08-26 | 部署 | 配置开机自启（autostart.bat + vbs 到 Windows 启动文件夹），解决 1033 反复（会话切换/重启被杀进程）问题 | autostart.bat, VidSnap-autostart.vbs | ✅ 已完成 |
+| 2026-08-22 | 架构重构 | 平台处理器模式（platforms.ts 统一接口 + route.ts 去 if/else 分平台）+ 抖音降级友好提示 | platforms.ts, route.ts, douyin-processor.ts | ✅ 已完成 |
+| 2026-08-22 | 部署调研 | 调研部署方案：国内节点内存够(300-500MB)但YouTube被墙；海外/香港节点直连YouTube但抖音可能被限；Cloudflare Tunnel只是管道非主机；结论：暂缓部署，本地运行 + 待做开机自启 | - | 📝 调研记录 |
+| 2026-08-21 | UI重构 | 浅色 shadcn 风格（#165DFF/#F7F8FA）+ 左右分栏 + 时间轴样式 + 蓝色时间戳胶囊 + 空状态示例问题 | globals.css, page.tsx, ChatPanel.tsx, ResultPanel.tsx 等 | ✅ 已完成 |
 | 2026-08-21 | 追问v2 | 追问升级：混合回答（自然衔接）+ 多轮上下文 + 对话历史UI + 加载动画，真机验证通过 | prompts.ts, conversation-store.ts, followup/route.ts, page.tsx, ResultPanel.tsx | ✅ 已完成 |
 | 2026-08-20 | A4 | 可观测性埋点：token 用量 + 成本核算 + 耗时统计（实测单视频 ¥0.0064 / token 1769 / 25.7s） | src/lib/llm.ts, observability.ts, route.ts | ✅ 已完成 |
 | 2026-08-20 | A3 | 建立总结质量评测集 + LLM-as-judge（幻觉率 0% / 召回率 100%），复用真实 prompt 零漂移 | scripts/eval/, src/lib/llm.ts | ✅ 已完成 |
