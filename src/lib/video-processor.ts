@@ -11,6 +11,9 @@ const execFileAsync = promisify(execFile);
 const TEMP_DIR = path.join(os.tmpdir(), "vidsnap");
 const YT_DLP_PATH = "yt-dlp";
 const COOKIES_FILE = path.join(process.cwd(), "cookies.txt");
+// 伪装浏览器 UA，降低 YouTube 反爬对 yt-dlp 的识别概率
+const BROWSER_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
 
 export interface VideoInfo {
   id: string;
@@ -50,6 +53,8 @@ export async function extractVideoInfo(url: string): Promise<VideoInfo> {
   const args = [
     "--dump-json",
     "--no-playlist",
+    "--user-agent", BROWSER_UA,
+    "--js-runtimes", "node",
     ...getCookieArgs(),
     url,
   ];
@@ -82,6 +87,8 @@ export async function downloadAudio(url: string): Promise<ProcessResult> {
       "-f", "bestaudio[ext=m4a]/bestaudio",
       "--output", outputTemplate,
       "--no-playlist",
+      "--user-agent", BROWSER_UA,
+      "--js-runtimes", "node",
       ...getCookieArgs(),
       url,
     ]);
@@ -125,6 +132,8 @@ export async function tryDownloadSubtitles(url: string): Promise<{
         "--convert-subs", "srt",
         "--output", outputTemplate,
         "--no-playlist",
+        "--user-agent", BROWSER_UA,
+        "--js-runtimes", "node",
         ...getCookieArgs(),
         url,
       ], { timeout: 30000 });
