@@ -12,7 +12,7 @@ current="$(bash .claude/hooks/plan-state.sh fingerprint 2>/dev/null || echo "")"
 stored="$(cat "$STATE_FILE" 2>/dev/null || echo "")"
 
 if [ -n "$current" ] && [ "$current" != "$stored" ]; then
-  echo "【update-plan】检测到本轮有未记录的进展，请运行 update-plan 技能，把本轮完成内容同步到 docs/IMPROVEMENT_PLAN.md 的「执行进展日志」，最后执行 bash .claude/hooks/plan-state.sh record。"
+  echo "【update-plan】检测到本轮有未记录的进展，请运行 update-plan 技能，把本轮完成内容同步到 docs/IMPROVEMENT_PLAN.md 的「执行进展日志」，最后执行 bash .claude/hooks/plan-state.sh record。" >&2
   exit 2
 fi
 
