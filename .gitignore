@@ -62,3 +62,6 @@ scripts/_vendor/
 
 # Cloudflare 隧道配置（含凭据路径，勿提交；用 cloudflared-config.example.yml 作模板）
 cloudflared-config.yml
+
+# Cloudflare 隧道客户端二进制（约 54MB，自行下载，见 README 部署章节）
+cloudflared.exe

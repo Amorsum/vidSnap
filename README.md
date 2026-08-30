@@ -46,6 +46,14 @@ npm install
 npm run dev
 ```
 
+## 部署（Cloudflare Tunnel）
+
+`cloudflared.exe` 客户端**不随仓库分发**（二进制约 54MB），需自行下载：
+
+1. 从 [Cloudflare 官方下载页](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) 下载对应平台的 `cloudflared`，放至项目根目录
+2. 复制 `cloudflared-config.example.yml` 为 `cloudflared-config.yml`，按注释填入隧道凭据
+3. 运行 `start.bat` 一键启动（服务 + 隧道）；如需开机自启，配置 `autostart.bat`（Windows 启动文件夹 + VBS 静默运行）
+
 ## 目录结构
 
 ```
@@ -76,5 +84,7 @@ npm run dev
 │   ├── douyin_playwright.py     # 抖音 Playwright 解析脚本
 │   └── download-ytdlp.sh        # yt-dlp 下载脚本（Netlify 构建用）
 ├── start.bat                    # 一键启动脚本（本地 + Cloudflare Tunnel）
-└── cloudflared.exe              # Cloudflare Tunnel 客户端
+└── autostart.bat                # 开机自启脚本（配合 Windows 启动文件夹 VBS）
 ```
+
+> `cloudflared.exe` 不在仓库中，自行下载后放至项目根目录（见上方「部署」章节）。
