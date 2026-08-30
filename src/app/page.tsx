@@ -3,28 +3,20 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import Header from "@/components/Header";
 import URLInput from "@/components/URLInput";
-import ProcessingStatus from "@/components/ProcessingStatus";
-import ResultPanel from "@/components/ResultPanel";
+import ProcessingStatus, { type ProgressStep } from "@/components/ProcessingStatus";
+import ResultPanel, { type SummaryResult } from "@/components/ResultPanel";
 import ChatPanel, { type Turn } from "@/components/ChatPanel";
 import FollowUpInput from "@/components/FollowUpInput";
 import Footer from "@/components/Footer";
-
-type ProgressStep = "downloading" | "transcribing" | "analyzing" | "done" | "error";
-
-interface VideoInfo {
-  id: string;
-  title: string;
-  duration: number;
-  thumbnail: string;
-  uploader: string;
-}
+import { sseLines } from "@/lib/sse";
+import type { VideoInfo } from "@/lib/video-processor";
 
 interface ProcessResult {
   video: VideoInfo;
   transcriptSource: "builtin" | "whisper";
   transcriptText: string;
   transcriptSegments: { start: number; end: number; text: string }[];
-  result: { overall: string; videoType?: string; segments: { title: string; start: number; end: number; points: { time: string; text: string }[] }[] };
+  result: SummaryResult;
 }
 
 // 追问条目的自增 id（模块级，用于按身份更新，避免按下标覆盖错条目）
@@ -148,40 +140,28 @@ export default function Home() {
         return;
       }
 
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const event = JSON.parse(line.slice(6));
-              if (event.type === "progress") {
-                setProgressStep(event.step as ProgressStep);
-                if (typeof event.percent === "number") {
-                  setProgressPercent(event.percent);
-                }
-              } else if (event.type === "result") {
-                setProgressStep("done");
-                setResult(event.data);
-                setStreamingText("");
-              } else if (event.type === "error") {
-                setProgressStep("error");
-                setErrorMessage(event.message);
-              } else if (event.type === "stream") {
-                // AI 流式输出增量
-                setStreamingText(prev => prev + event.text);
+      for await (const line of sseLines(reader)) {
+        if (line.startsWith("data: ")) {
+          try {
+            const event = JSON.parse(line.slice(6));
+            if (event.type === "progress") {
+              setProgressStep(event.step as ProgressStep);
+              if (typeof event.percent === "number") {
+                setProgressPercent(event.percent);
               }
-            } catch {
-              // 跳过解析失败的行
+            } else if (event.type === "result") {
+              setProgressStep("done");
+              setResult(event.data);
+              setStreamingText("");
+            } else if (event.type === "error") {
+              setProgressStep("error");
+              setErrorMessage(event.message);
+            } else if (event.type === "stream") {
+              // AI 流式输出增量
+              setStreamingText(prev => prev + event.text);
             }
+          } catch {
+            // 跳过解析失败的行
           }
         }
       }
@@ -305,7 +285,7 @@ export default function Home() {
             <div className="min-w-0">
               <ResultPanel
                 video={result.video}
-                result={result.result as { overall: string; videoType?: string; segments: { title: string; start: number; end: number; points: { time: string; text: string }[] }[] }}
+                result={result.result}
                 transcriptSource={result.transcriptSource}
               />
             </div>

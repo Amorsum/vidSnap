@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cleanupTempFiles } from "@/lib/video-processor";
+import { cleanupTempFiles, type VideoInfo, type ProcessResult } from "@/lib/video-processor";
 import { getTranscript, parseBuiltinSubtitle, type TranscriptResult } from "@/lib/transcriber";
 import { transcribeWithSenseVoice } from "@/lib/sensevoice";
-import { isValidUrl } from "@/lib/url-utils";
+import { isValidUrl, UNSUPPORTED_PLATFORM_MESSAGE } from "@/lib/url-utils";
 import { getProcessor } from "@/lib/platforms";
 import { callLLMStreaming } from "@/lib/llm";
 import type { TokenUsage } from "@/lib/llm";
@@ -13,7 +13,6 @@ import { tryEmbedSegments } from "@/lib/embeddings";
 import { getCachedResult, cacheResult } from "@/lib/process-cache";
 import { verifyAccessCode, getClientIp, checkRateLimit } from "@/lib/security";
 import { existsSync } from "fs";
-import type { ProcessResult } from "@/lib/video-processor";
 
 function sseEvent(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`;
@@ -85,8 +84,8 @@ async function getTranscriptSmart(
 // ─── 辅助：AI 总结 + 缓存 ───
 
 async function doAISummarize(
-  info: { id: string; title: string; duration: number; thumbnail: string; uploader: string },
-  transcript: { text: string; segments: { start: number; end: number; text: string }[]; source: "builtin" | "whisper" },
+  info: VideoInfo,
+  transcript: TranscriptResult,
   send: (data: unknown) => void,
 ): Promise<{ result: Record<string, unknown>; usage: TokenUsage | null; latencyMs: number }> {
   const summarizeStart = Date.now();
@@ -158,7 +157,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!isValidUrl(url)) {
-      return NextResponse.json({ success: false, error: "目前仅支持 YouTube 和抖音链接" }, { status: 400 });
+      return NextResponse.json({ success: false, error: UNSUPPORTED_PLATFORM_MESSAGE }, { status: 400 });
     }
 
     // 访问码门禁
@@ -192,10 +191,10 @@ export async function POST(request: NextRequest) {
         }, 15000);
 
         // info 声明在 try 外：catch 分支需要用它清理临时文件
-        let info: { id: string; title: string; duration: number; thumbnail: string; uploader: string } | undefined;
+        let info: VideoInfo | undefined;
 
         try {
-          let transcript: { text: string; segments: { start: number; end: number; text: string }[]; source: "builtin" | "whisper" };
+          let transcript: TranscriptResult;
           let aiResult: Record<string, unknown>;
           let summarizeUsage: TokenUsage | null = null;
           let summarizeLatencyMs = 0;
@@ -221,22 +220,16 @@ export async function POST(request: NextRequest) {
           } else {
             // 缓存未命中才下载（字幕优先或音频）
             const downloadResult = await processor.download(url, info);
-            const subtitlePath = downloadResult.subtitlePath;
             send(progress("downloading", 100));
 
             // 转写：字幕优先，否则下载音频转写
-            if (subtitlePath && existsSync(subtitlePath)) {
-              transcript = await parseBuiltinSubtitle(subtitlePath);
+            if (downloadResult.subtitlePath && existsSync(downloadResult.subtitlePath)) {
+              transcript = await parseBuiltinSubtitle(downloadResult.subtitlePath);
             } else {
-              const processResult: ProcessResult = {
-                info,
-                audioPath: downloadResult.audioPath,
-                subtitlePath,
-              };
               // 短视频用 tiny 模型提速（仅抖音；YouTube 保持默认模型保证转写质量）
               const isShortVideo = info.duration < 180;
               const model = processor.useTinyForShortVideos && isShortVideo && process.env.WHISPER_MODEL !== "tiny" ? "tiny" : undefined;
-              transcript = await getTranscriptSmart(processResult, send, { model });
+              transcript = await getTranscriptSmart(downloadResult, send, { model });
             }
 
             if (transcript.segments.length === 0) {
@@ -259,22 +252,16 @@ export async function POST(request: NextRequest) {
 
           const totalMs = Date.now() - totalStart;
           const cost = summarizeUsage ? calcCost(summarizeUsage) : null;
-          if (summarizeUsage) {
+          if (summarizeUsage && cost !== null) {
             console.log(
-              `[metrics] ${info.id} 总结完成: token ${summarizeUsage.totalTokens} (in ${summarizeUsage.promptTokens}/out ${summarizeUsage.completionTokens}), 总耗时 ${totalMs}ms (总结 ${summarizeLatencyMs}ms), 成本 ¥${cost!.toFixed(4)}`
+              `[metrics] ${info.id} 总结完成: token ${summarizeUsage.totalTokens} (in ${summarizeUsage.promptTokens}/out ${summarizeUsage.completionTokens}), 总耗时 ${totalMs}ms (总结 ${summarizeLatencyMs}ms), 成本 ¥${cost.toFixed(4)}`
             );
           }
 
           send({
             type: "result",
             data: {
-              video: {
-                id: info.id,
-                title: info.title,
-                duration: info.duration,
-                thumbnail: info.thumbnail,
-                uploader: info.uploader,
-              },
+              video: info,
               transcriptSource: transcript.source,
               transcriptText: transcript.text,
               transcriptSegments: transcript.segments,

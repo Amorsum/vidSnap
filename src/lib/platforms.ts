@@ -2,19 +2,15 @@
  * 平台处理器：把「下载/提取」逻辑与主流程解耦，方便扩展新平台（B站 等）
  * 每个平台实现统一的 download() 接口，主流程无需关心平台差异。
  */
-import { detectPlatform } from "./url-utils";
-import type { VideoInfo } from "./video-processor";
+import { detectPlatform, UNSUPPORTED_PLATFORM_MESSAGE } from "./url-utils";
+import type { Platform } from "./url-utils";
+import type { VideoInfo, ProcessResult } from "./video-processor";
 import { extractVideoInfo, downloadAudio, tryDownloadSubtitles } from "./video-processor";
 
-export interface DownloadResult {
-  info: VideoInfo;
-  audioPath: string;
-  subtitlePath: string | null;
-}
+// 与 ProcessResult 字段一致（info + 音频路径 + 可选字幕路径）
+export type DownloadResult = ProcessResult;
 
 export interface PlatformProcessor {
-  /** 判断 URL 是否属于该平台 */
-  matches(url: string): boolean;
   /** 轻量提取视频元信息（不下载媒体），供缓存查询等使用 */
   getInfo(url: string): Promise<VideoInfo>;
   /** 下载字幕/音频（info 为 getInfo 的结果，避免重复解析） */
@@ -26,7 +22,6 @@ export interface PlatformProcessor {
 // ─── YouTube：字幕优先，无字幕则下载音频 ───
 
 const youtubeProcessor: PlatformProcessor = {
-  matches: (url) => detectPlatform(url) === "youtube",
   getInfo: (url) => extractVideoInfo(url),
   download: async (url, info) => {
     // 字幕优先：命中字幕则跳过下载音频（省 10-60s）
@@ -46,7 +41,6 @@ const youtubeProcessor: PlatformProcessor = {
 const douyinVideoUrlMemo = new Map<string, string>();
 
 const douyinProcessor: PlatformProcessor = {
-  matches: (url) => detectPlatform(url) === "douyin",
   useTinyForShortVideos: true,
   getInfo: async (url) => {
     const { extractDouyinInfo } = await import("./douyin-processor");
@@ -59,7 +53,7 @@ const douyinProcessor: PlatformProcessor = {
     let videoUrl = douyinVideoUrlMemo.get(url);
     douyinVideoUrlMemo.delete(url);
     if (!videoUrl) {
-      // 缓存命中时未走 download，或并发同 URL 已被消费：重新提取兜底
+      // 缓存未命中，或并发同 URL 已被消费：重新提取兜底
       const extracted = await extractDouyinInfo(url);
       videoUrl = extracted.videoUrl;
     }
@@ -68,13 +62,18 @@ const douyinProcessor: PlatformProcessor = {
   },
 };
 
-const processors: PlatformProcessor[] = [youtubeProcessor, douyinProcessor];
+// 按平台键控注册：新增平台时在 detectPlatform 与这里各加一行
+const processors: Record<Platform, PlatformProcessor> = {
+  youtube: youtubeProcessor,
+  douyin: douyinProcessor,
+};
 
 /** 根据 URL 选择对应的平台处理器 */
 export function getProcessor(url: string): PlatformProcessor {
-  const processor = processors.find((p) => p.matches(url));
+  const platform = detectPlatform(url);
+  const processor = platform ? processors[platform] : undefined;
   if (!processor) {
-    throw new Error("暂不支持的平台，目前支持 YouTube 和抖音");
+    throw new Error(UNSUPPORTED_PLATFORM_MESSAGE);
   }
   return processor;
 }

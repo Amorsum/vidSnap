@@ -1,22 +1,24 @@
+/** 处理阶段（与 SSE progress 事件的 step 一致） */
+export type ProgressStep = "downloading" | "transcribing" | "analyzing" | "done" | "error";
+
 interface ProcessingStatusProps {
   isLoading: boolean;
-  step?: "downloading" | "transcribing" | "analyzing" | "done" | "error";
+  step?: ProgressStep;
   progress?: number; // 0-100 动态百分比
   errorMessage?: string;
 }
 
 const steps = [
-  { key: "downloading", label: "正在下载视频音频...", shortLabel: "下载音频" },
-  { key: "transcribing", label: "正在识别语音字幕...", shortLabel: "语音转写" },
-  { key: "analyzing", label: "AI 正在理解视频内容...", shortLabel: "AI 总结" },
-];
+  { key: "downloading", shortLabel: "下载音频" },
+  { key: "transcribing", shortLabel: "语音转写" },
+  { key: "analyzing", shortLabel: "AI 总结" },
+] as const;
 
-const stepLabels: Record<string, string> = {
+const stepLabels: Partial<Record<ProgressStep, string>> = {
   downloading: "正在下载视频音频...",
   transcribing: "正在识别语音字幕...",
   analyzing: "AI 正在理解视频内容...",
   done: "处理完成",
-  cache_hit: "缓存命中，秒级返回...",
 };
 
 export default function ProcessingStatus({
@@ -57,33 +59,38 @@ export default function ProcessingStatus({
 
       {/* 步骤指示器 */}
       <div className="flex items-center gap-2">
-        {steps.map((s, i) => (
-          <div key={s.key} className="flex items-center gap-2">
-            <div
-              className={`h-2 w-2 rounded-full transition-colors ${
-                i < currentStepIndex || step === "done"
-                  ? "bg-[#165dff]"
-                  : i === currentStepIndex
-                    ? "bg-[#165dff] animate-pulse"
-                    : "bg-[#e5e6eb]"
-              }`}
-            />
-            <span
-              className={`text-xs transition-colors ${
-                i <= currentStepIndex || step === "done" ? "text-[#86909c]" : "text-[#c9cdd4]"
-              }`}
-            >
-              {s.shortLabel}
-            </span>
-            {i < steps.length - 1 && (
+        {steps.map((s, i) => {
+          const isDone = step === "done";
+          const isCompleted = i < currentStepIndex; // 已完成的步骤
+          const isActive = i === currentStepIndex && !isDone; // 进行中的步骤
+          return (
+            <div key={s.key} className="flex items-center gap-2">
               <div
-                className={`mx-1 h-px w-4 transition-colors ${
-                  i < currentStepIndex || step === "done" ? "bg-[#165dff]/50" : "bg-[#e5e6eb]"
+                className={`h-2 w-2 rounded-full transition-colors ${
+                  isCompleted || isDone
+                    ? "bg-[#165dff]"
+                    : isActive
+                      ? "bg-[#165dff] animate-pulse"
+                      : "bg-[#e5e6eb]"
                 }`}
               />
-            )}
-          </div>
-        ))}
+              <span
+                className={`text-xs transition-colors ${
+                  isCompleted || isActive || isDone ? "text-[#86909c]" : "text-[#c9cdd4]"
+                }`}
+              >
+                {s.shortLabel}
+              </span>
+              {i < steps.length - 1 && (
+                <div
+                  className={`mx-1 h-px w-4 transition-colors ${
+                    isCompleted || isDone ? "bg-[#165dff]/50" : "bg-[#e5e6eb]"
+                  }`}
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

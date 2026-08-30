@@ -124,10 +124,9 @@ export async function downloadAudio(url: string, preInfo?: VideoInfo): Promise<P
 
     return { info, audioPath, subtitlePath: null };
   } else {
-    // Douyin 走 Playwright 提取流程
-    const { extractDouyinInfo, downloadDouyinAudio } = await import("./douyin-processor");
-    const { info, videoUrl } = await extractDouyinInfo(url);
-    const audioPath = await downloadDouyinAudio(videoUrl, info.id);
+    // Douyin 走 Playwright 提取流程（与 platforms.ts 共用同一实现）
+    const { extractAndDownloadDouyinAudio } = await import("./douyin-processor");
+    const { info, audioPath } = await extractAndDownloadDouyinAudio(url);
     return { info, audioPath, subtitlePath: null };
   }
 }

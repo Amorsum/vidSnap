@@ -25,11 +25,11 @@ export function verifyAccessCode(code: string | null): boolean {
 
 const hits = new Map<string, number[]>();
 
-/** 简单清理：条目过多时移除已全部过期的桶，防止内存无限增长 */
-function sweepIfNeeded(now: number): void {
+/** 简单清理：条目过多时移除已全部过期的桶（时间戳均早于窗口起点），防止内存无限增长 */
+function sweepIfNeeded(now: number, windowMs: number): void {
   if (hits.size < 1000) return;
   for (const [key, timestamps] of hits) {
-    if (timestamps.every((t) => t <= now)) hits.delete(key);
+    if (timestamps.every((t) => t <= now - windowMs)) hits.delete(key);
   }
 }
 
@@ -56,6 +56,6 @@ export function checkRateLimit(
 
   history.push(now);
   hits.set(key, history);
-  sweepIfNeeded(now);
+  sweepIfNeeded(now, windowMs);
   return { allowed: true, retryAfterSec: 0 };
 }

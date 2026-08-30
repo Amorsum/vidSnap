@@ -1,20 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
+import type { VideoInfo } from "@/lib/video-processor";
+
+/** AI 总结结果结构（与 SSE result 载荷一致） */
+export interface SummaryResult {
+  overall: string;
+  videoType?: string;
+  segments: { title: string; start: number; end: number; points: { time: string; text: string }[] }[];
+}
 
 interface ResultPanelProps {
-  video: {
-    id: string;
-    title: string;
-    duration: number;
-    thumbnail: string;
-    uploader: string;
-  };
-  result: {
-    overall: string;
-    videoType?: string;
-    segments: { title: string; start: number; end: number; points: { time: string; text: string }[] }[];
-  };
+  video: VideoInfo;
+  result: SummaryResult;
   transcriptSource: "builtin" | "whisper";
 }
 
@@ -26,13 +24,9 @@ function formatDuration(seconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export default function ResultPanel({ video, result, transcriptSource }: ResultPanelProps) {
+// memo：追问状态变化会触发父组件重渲染，结果区内容不变时跳过整棵 segments 树
+export default memo(function ResultPanel({ video, result, transcriptSource }: ResultPanelProps) {
   const [imgError, setImgError] = useState(false);
-  const answer = result as {
-    overall: string;
-    videoType?: string;
-    segments: { title: string; start: number; end: number; points: { time: string; text: string }[] }[];
-  };
 
   return (
     <div className="w-full space-y-5">
@@ -69,9 +63,9 @@ export default function ResultPanel({ video, result, transcriptSource }: ResultP
         <div className="mb-4 flex items-center gap-2">
           <span className="text-lg">🤖</span>
           <h3 className="text-sm font-semibold text-[#1d2129]">AI 总结</h3>
-          {answer.videoType && (
+          {result.videoType && (
             <span className="rounded-full bg-[#e8f3ff] px-2 py-0.5 text-[10px] text-[#165dff]">
-              {answer.videoType}
+              {result.videoType}
             </span>
           )}
         </div>
@@ -79,20 +73,20 @@ export default function ResultPanel({ video, result, transcriptSource }: ResultP
         {/* 一句话总结 */}
         <div className="mb-6 rounded-lg bg-[#f7f8fa] px-4 py-3">
           <p className="text-xs text-[#86909c]">💡 一句话总结</p>
-          <p className="mt-1 text-sm text-[#1d2129]">{answer.overall}</p>
+          <p className="mt-1 text-sm text-[#1d2129]">{result.overall}</p>
         </div>
 
         {/* 时间轴分段 */}
-        {answer.segments && answer.segments.length > 0 && (
+        {result.segments && result.segments.length > 0 && (
           <div>
             <p className="mb-4 text-sm font-medium text-[#86909c]">📍 时间轴分段</p>
             <div>
-              {answer.segments.map((seg, i) => (
+              {result.segments.map((seg, i) => (
                 <div key={i} className="flex gap-3">
                   {/* 时间轴节点（圆点 + 连接线） */}
                   <div className="flex flex-col items-center">
                     <span className="mt-5 h-2.5 w-2.5 flex-shrink-0 rounded-full bg-[#165dff]" />
-                    {i < answer.segments.length - 1 && (
+                    {i < result.segments.length - 1 && (
                       <span className="w-px flex-1 bg-[#e5e6eb]" />
                     )}
                   </div>
@@ -123,4 +117,4 @@ export default function ResultPanel({ video, result, transcriptSource }: ResultP
       </div>
     </div>
   );
-}
+});

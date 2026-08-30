@@ -8,15 +8,10 @@
  * - 超过 50 条时触发清理
  */
 import type { TranscriptSegment } from "./transcriber";
+import type { VideoInfo } from "./video-processor";
 
 interface CachedProcessResult {
-  video: {
-    id: string;
-    title: string;
-    duration: number;
-    thumbnail: string;
-    uploader: string;
-  };
+  video: VideoInfo;
   transcriptSource: "builtin" | "whisper";
   transcriptText: string;
   transcriptSegments: TranscriptSegment[];

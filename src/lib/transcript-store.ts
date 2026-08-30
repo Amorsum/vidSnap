@@ -3,6 +3,8 @@
  * 格式：{ videoId → { segments, videoInfo, timestamp } }
  * 每个 segment 可携带 embedding，供 RAG 追问检索使用
  */
+import type { VideoInfo } from "./video-processor";
+
 export interface StoredSegment {
   start: number;
   end: number;
@@ -12,7 +14,7 @@ export interface StoredSegment {
 
 interface StoredTranscript {
   segments: StoredSegment[];
-  videoInfo: { id: string; title: string; duration: number; thumbnail: string; uploader: string };
+  videoInfo: VideoInfo;
   savedAt: number;
 }
 
@@ -33,7 +35,7 @@ function cleanup() {
 export function saveTranscript(
   videoId: string,
   segments: { start: number; end: number; text: string }[],
-  videoInfo: { id: string; title: string; duration: number; thumbnail: string; uploader: string },
+  videoInfo: VideoInfo,
   embeddings?: number[][]
 ): void {
   const storedSegments: StoredSegment[] = segments.map((seg, i) => ({

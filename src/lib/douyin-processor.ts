@@ -3,7 +3,7 @@ import { promisify } from "util";
 import os from "os";
 import path from "path";
 import fs from "fs/promises";
-import { VideoInfo } from "./video-processor";
+import type { VideoInfo } from "./video-processor";
 
 const execFileAsync = promisify(execFile);
 const TEMP_DIR = path.join(os.tmpdir(), "vidsnap");
@@ -59,6 +59,17 @@ export async function extractDouyinInfo(url: string): Promise<DouyinResult> {
     },
     videoUrl: data.video_url,
   };
+}
+
+/**
+ * 提取信息并下载音频（无 memo 的直通版本，供旧流水线 extractTextFromVideo 使用）
+ */
+export async function extractAndDownloadDouyinAudio(
+  url: string
+): Promise<{ info: VideoInfo; audioPath: string }> {
+  const { info, videoUrl } = await extractDouyinInfo(url);
+  const audioPath = await downloadDouyinAudio(videoUrl, info.id);
+  return { info, audioPath };
 }
 
 /**

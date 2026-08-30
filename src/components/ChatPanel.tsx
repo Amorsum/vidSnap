@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 export interface Turn {
   id: number;
   question: string;
@@ -16,11 +18,14 @@ const EXAMPLES = [
   "视频里提到的核心方法是什么？",
 ];
 
+// [MM:SS] 或 [H:MM:SS] 时间戳引用
+const TIMESTAMP_PATTERN = /(\[[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?\])/;
+
 /** 渲染回答文本，高亮 [MM:SS] 时间戳引用（蓝色胶囊） */
 function renderAnswer(text: string) {
-  const parts = text.split(/(\[[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?\])/g);
-  return parts.map((part, i) => {
-    if (/^\[[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?\]$/.test(part)) {
+  // split 带捕获组时奇数下标即命中的时间戳，单遍解析无需二次正则
+  return text.split(TIMESTAMP_PATTERN).map((part, i) => {
+    if (i % 2 === 1) {
       return (
         <span
           key={i}
@@ -33,6 +38,32 @@ function renderAnswer(text: string) {
     return <span key={i}>{part}</span>;
   });
 }
+
+interface TurnItemProps {
+  turn: Turn;
+}
+
+// memo：追问 loading 等父级状态变化时，未更新的历史问答不重渲染（含正则拆分）
+const TurnItem = memo(function TurnItem({ turn }: TurnItemProps) {
+  return (
+    <div className="space-y-3">
+      {/* 用户问题：右对齐蓝色气泡 */}
+      <div className="flex justify-end">
+        <div className="max-w-[85%] rounded-[10px] rounded-br-sm bg-[#165dff] px-3.5 py-2.5">
+          <p className="text-sm text-white">{turn.question}</p>
+        </div>
+      </div>
+      {/* AI 回答：左对齐灰气泡 */}
+      {turn.answer && (
+        <div className="flex justify-start">
+          <div className="max-w-[90%] rounded-[10px] rounded-bl-sm bg-[#f2f3f5] px-3.5 py-2.5">
+            <p className="text-sm leading-relaxed text-[#1d2129]">{renderAnswer(turn.answer)}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
 
 export default function ChatPanel({ conversation, followUpLoading, onExample }: ChatPanelProps) {
   return (
@@ -64,22 +95,7 @@ export default function ChatPanel({ conversation, followUpLoading, onExample }: 
         )}
 
         {conversation.map((turn) => (
-          <div key={turn.id} className="space-y-3">
-            {/* 用户问题：右对齐蓝色气泡 */}
-            <div className="flex justify-end">
-              <div className="max-w-[85%] rounded-[10px] rounded-br-sm bg-[#165dff] px-3.5 py-2.5">
-                <p className="text-sm text-white">{turn.question}</p>
-              </div>
-            </div>
-            {/* AI 回答：左对齐灰气泡 */}
-            {turn.answer && (
-              <div className="flex justify-start">
-                <div className="max-w-[90%] rounded-[10px] rounded-bl-sm bg-[#f2f3f5] px-3.5 py-2.5">
-                  <p className="text-sm leading-relaxed text-[#1d2129]">{renderAnswer(turn.answer)}</p>
-                </div>
-              </div>
-            )}
-          </div>
+          <TurnItem key={turn.id} turn={turn} />
         ))}
 
         {/* 正在输入 */}

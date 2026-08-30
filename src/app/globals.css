@@ -1,13 +1,8 @@
 @import "tailwindcss";
 
-:root {
-  --background: #f7f8fa;
-  --foreground: #1d2129;
-}
-
+/* 仅声明字体 token（供 font-sans / font-mono 工具类与 body 使用）；
+   背景/前景色全站以组件内固定值为准，不再声明 color token */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

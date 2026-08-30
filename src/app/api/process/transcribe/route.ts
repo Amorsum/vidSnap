@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extractTextFromVideo, cleanupTempFiles } from "@/lib/video-processor";
 import { transcribeAudio } from "@/lib/whisper";
+import { detectPlatform } from "@/lib/url-utils";
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,8 +11,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "请提供视频链接" }, { status: 400 });
     }
 
-    const youtubeRegex = /(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
-    if (!youtubeRegex.test(url)) {
+    if (detectPlatform(url) !== "youtube") {
       return NextResponse.json({ error: "目前仅支持 YouTube 链接" }, { status: 400 });
     }
 

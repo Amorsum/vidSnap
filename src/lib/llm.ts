@@ -2,6 +2,7 @@
  * 通用 LLM 服务层：支持 DeepSeek / Claude
  * 通过环境变量 LLM_PROVIDER 切换，默认 deepseek
  */
+import { sseLines } from "./sse";
 
 export type LLMProvider = "deepseek" | "claude";
 export type SummarizeMode = "summary" | "keypoints" | "translate";
@@ -103,100 +104,20 @@ function getConfig(): LLMConfig {
 }
 
 /**
- * 调用 DeepSeek（OpenAI 兼容格式）
- */
-async function callDeepSeek(
-  config: LLMConfig,
-  systemPrompt: string,
-  transcript: string
-): Promise<string> {
-  const body = {
-    model: config.model,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: transcript },
-    ],
-    max_tokens: 4096,
-    temperature: 0.3,
-  };
-
-  const response = await fetch(config.apiUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`DeepSeek API 错误 (${response.status}): ${errorText}`);
-  }
-
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || "";
-}
-
-/**
- * 调用 Claude（Anthropic 格式）
- */
-async function callClaude(
-  config: LLMConfig,
-  systemPrompt: string,
-  transcript: string
-): Promise<string> {
-  const body = {
-    model: config.model,
-    max_tokens: 4096,
-    system: systemPrompt,
-    messages: [
-      { role: "user", content: transcript },
-    ],
-  };
-
-  const response = await fetch(config.apiUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": config.apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Claude API 错误 (${response.status}): ${errorText}`);
-  }
-
-  const data = await response.json();
-  return data.content?.[0]?.text || "";
-}
-
-/**
- * 统一的 LLM 调用入口（使用内置 prompt 模板）
+ * 统一的 LLM 调用入口（使用内置 prompt 模板，非流式，供旧版 summarize 路由使用）
  */
 export async function callLLM(
   transcript: string,
   mode: SummarizeMode
 ): Promise<{ result: string; provider: LLMProvider }> {
   const config = getConfig();
-  const systemPrompt = SYSTEM_PROMPTS[mode];
-
-  let result: string;
-  if (config.provider === "deepseek") {
-    result = await callDeepSeek(config, systemPrompt, transcript);
-  } else {
-    result = await callClaude(config, systemPrompt, transcript);
-  }
-
+  const result = await callLLMWithPrompt(SYSTEM_PROMPTS[mode], transcript, { maxTokens: 4096 });
   return { result, provider: config.provider };
 }
 
 /**
  * 底层调用：使用自定义 system prompt 和 user message
- * 供 ai-engine.ts 等需要自定义 prompt 的模块使用
+ * 供 process/followup 路由等需要自定义 prompt 的模块使用
  */
 export async function callLLMWithPrompt(
   systemPrompt: string,
@@ -320,43 +241,32 @@ export async function* callLLMStreaming(
   const reader = response.body?.getReader();
   if (!reader) throw new Error("无法读取流式响应");
 
-  const decoder = new TextDecoder();
-  let buffer = "";
   let lastUsage: TokenUsage | null = null;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  for await (const line of sseLines(reader)) {
+    const trimmed = line.trim();
+    if (!trimmed || !trimmed.startsWith("data: ")) continue;
+    const data = trimmed.slice(6);
+    if (data === "[DONE]") {
+      if (lastUsage && options?.onUsage) options.onUsage(lastUsage);
+      return;
+    }
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith("data: ")) continue;
-      const data = trimmed.slice(6);
-      if (data === "[DONE]") {
-        if (lastUsage && options?.onUsage) options.onUsage(lastUsage);
-        return;
+    try {
+      const parsed = JSON.parse(data);
+      // 最后一个 chunk 可能只带 usage（无 content）
+      if (parsed.usage) {
+        lastUsage = {
+          promptTokens: parsed.usage.prompt_tokens || 0,
+          completionTokens: parsed.usage.completion_tokens || 0,
+          totalTokens: parsed.usage.total_tokens || 0,
+          cacheHitTokens: parsed.usage.prompt_cache_hit_tokens || 0,
+        };
       }
-
-      try {
-        const parsed = JSON.parse(data);
-        // 最后一个 chunk 可能只带 usage（无 content）
-        if (parsed.usage) {
-          lastUsage = {
-            promptTokens: parsed.usage.prompt_tokens || 0,
-            completionTokens: parsed.usage.completion_tokens || 0,
-            totalTokens: parsed.usage.total_tokens || 0,
-            cacheHitTokens: parsed.usage.prompt_cache_hit_tokens || 0,
-          };
-        }
-        const content = parsed.choices?.[0]?.delta?.content;
-        if (content) yield content;
-      } catch {
-        // 跳过无法解析的行
-      }
+      const content = parsed.choices?.[0]?.delta?.content;
+      if (content) yield content;
+    } catch {
+      // 跳过无法解析的行
     }
   }
 

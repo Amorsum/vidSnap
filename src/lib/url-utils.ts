@@ -12,6 +12,9 @@ const URL_EXTRACT_REGEX = /https?:\/\/[^\s]+/;
 
 export type Platform = "youtube" | "douyin";
 
+/** 不支持平台时的统一提示文案（API 校验与处理器兜底共用） */
+export const UNSUPPORTED_PLATFORM_MESSAGE = "目前仅支持 YouTube 和抖音链接";
+
 export function detectPlatform(url: string): Platform | null {
   if (YOUTUBE_REGEX.test(url)) return "youtube";
   if (DOUYIN_REGEX.test(url)) return "douyin";
