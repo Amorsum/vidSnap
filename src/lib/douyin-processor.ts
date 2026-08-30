@@ -37,7 +37,7 @@ export async function extractDouyinInfo(url: string): Promise<DouyinResult> {
   const data = JSON.parse(stdout) as DouyinRawInfo;
 
   if (data.error) {
-    throw new Error(data.error);
+    throw new Error("抖音解析失败（抖音可能已改版或反爬升级），建议换 YouTube 链接试试");
   }
 
   return {

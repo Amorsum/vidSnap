@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { downloadAudio, cleanupTempFiles, tryDownloadSubtitles, extractVideoInfo } from "@/lib/video-processor";
+import { cleanupTempFiles } from "@/lib/video-processor";
 import { getTranscript, parseBuiltinSubtitle, type TranscriptResult } from "@/lib/transcriber";
 import { transcribeWithSenseVoice } from "@/lib/sensevoice";
-import { isValidUrl, detectPlatform } from "@/lib/url-utils";
+import { isValidUrl } from "@/lib/url-utils";
+import { getProcessor } from "@/lib/platforms";
 import { callLLMStreaming } from "@/lib/llm";
 import type { TokenUsage } from "@/lib/llm";
 import { calcCost } from "@/lib/observability";
@@ -159,8 +160,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "目前仅支持 YouTube 和抖音链接" }, { status: 400 });
     }
 
-    const platform = detectPlatform(url);
-
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
@@ -177,94 +176,55 @@ export async function POST(request: NextRequest) {
           let info: { id: string; title: string; duration: number; thumbnail: string; uploader: string };
           let transcript: { text: string; segments: { start: number; end: number; text: string }[]; source: "builtin" | "whisper" };
           let aiResult: Record<string, unknown>;
-          let cached;
           let summarizeUsage: TokenUsage | null = null;
           let summarizeLatencyMs = 0;
           const totalStart = Date.now();
 
-          if (platform === "youtube") {
-            // ─── YouTube：提前提取信息，检查缓存 ───
-            send(progress("downloading", 0));
-            info = await extractVideoInfo(url);
-            send(progress("downloading", 10));
-            cached = getCachedResult(info.id);
+          // 统一处理：根据平台选处理器下载（字幕优先或音频）
+          send(progress("downloading", 0));
+          const processor = getProcessor(url);
+          const downloadResult = await processor.download(url);
+          info = downloadResult.info;
+          const subtitlePath = downloadResult.subtitlePath;
+          send(progress("downloading", 100));
 
-            if (cached) {
-              send(progress("downloading", 100));
-              transcript = {
-                text: cached.transcriptText,
-                segments: cached.transcriptSegments,
-                source: cached.transcriptSource,
-              };
-              aiResult = cached.result;
-              saveTranscript(info.id, transcript.segments, info, cached.transcriptEmbeddings);
-            } else {
-              const subtitleResult = await tryDownloadSubtitles(url);
-              info = subtitleResult.info;
-              send(progress("downloading", 100));
-
-              if (subtitleResult.subtitlePath && existsSync(subtitleResult.subtitlePath)) {
-                transcript = await parseBuiltinSubtitle(subtitleResult.subtitlePath);
-              } else {
-                // 下载音频
-                const processResult = await downloadAudio(url);
-                info = processResult.info;
-
-                // 智能转写：SenseVoice 云 API 优先，本地 Whisper 降级
-                transcript = await getTranscriptSmart(processResult, send);
-              }
-
-              if (transcript.segments.length === 0) {
-                await cleanupTempFiles(info.id);
-                send({ type: "error", message: "该视频没有检测到语音内容（可能是纯音乐或无声视频），无法生成文字总结" });
-                controller.close();
-                return;
-              }
-
-              send(progress("analyzing", mapPhaseProgress("analyzing", 0)));
-              const summary = await doAISummarize(info, transcript, send);
-              aiResult = summary.result;
-              summarizeUsage = summary.usage;
-              summarizeLatencyMs = summary.latencyMs;
-              await cleanupTempFiles(info.id);
-            }
+          const cached = getCachedResult(info.id);
+          if (cached) {
+            transcript = {
+              text: cached.transcriptText,
+              segments: cached.transcriptSegments,
+              source: cached.transcriptSource,
+            };
+            aiResult = cached.result;
+            saveTranscript(info.id, transcript.segments, info, cached.transcriptEmbeddings);
           } else {
-            // ─── 抖音：下载音频（Playwright 提取信息），然后检查缓存 ───
-            send(progress("downloading", 0));
-            const processResult = await downloadAudio(url);
-            info = processResult.info;
-            send(progress("downloading", 100));
-
-            cached = getCachedResult(info.id);
-            if (cached) {
-              transcript = {
-                text: cached.transcriptText,
-                segments: cached.transcriptSegments,
-                source: cached.transcriptSource,
-              };
-              aiResult = cached.result;
-              saveTranscript(info.id, transcript.segments, info, cached.transcriptEmbeddings);
+            // 转写：字幕优先，否则下载音频转写
+            if (subtitlePath && existsSync(subtitlePath)) {
+              transcript = await parseBuiltinSubtitle(subtitlePath);
             } else {
+              const processResult: ProcessResult = {
+                info,
+                audioPath: downloadResult.audioPath,
+                subtitlePath,
+              };
               const isShortVideo = info.duration < 180;
               const model = isShortVideo && process.env.WHISPER_MODEL !== "tiny" ? "tiny" : undefined;
-
-              // 智能转写：SenseVoice 云 API 优先，本地 Whisper 降级
               transcript = await getTranscriptSmart(processResult, send, { model, isShortVideo });
-
-              if (transcript.segments.length === 0) {
-                await cleanupTempFiles(info.id);
-                send({ type: "error", message: "该视频没有检测到语音内容（可能是纯音乐或无声视频），无法生成文字总结" });
-                controller.close();
-                return;
-              }
-
-              send(progress("analyzing", mapPhaseProgress("analyzing", 0)));
-              const summary = await doAISummarize(info, transcript, send);
-              aiResult = summary.result;
-              summarizeUsage = summary.usage;
-              summarizeLatencyMs = summary.latencyMs;
-              await cleanupTempFiles(info.id);
             }
+
+            if (transcript.segments.length === 0) {
+              await cleanupTempFiles(info.id);
+              send({ type: "error", message: "该视频没有检测到语音内容（可能是纯音乐或无声视频），无法生成文字总结" });
+              controller.close();
+              return;
+            }
+
+            send(progress("analyzing", mapPhaseProgress("analyzing", 0)));
+            const summary = await doAISummarize(info, transcript, send);
+            aiResult = summary.result;
+            summarizeUsage = summary.usage;
+            summarizeLatencyMs = summary.latencyMs;
+            await cleanupTempFiles(info.id);
           }
 
           // 收尾

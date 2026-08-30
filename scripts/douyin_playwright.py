@@ -67,7 +67,7 @@ async def extract_douyin_info(url):
         # 访问抖音页面
         await page.goto(url, wait_until="domcontentloaded", timeout=30000)
         resolved_url = page.url  # 获取重定向后的真实 URL
-        
+
         # 等待 API 响应（最多等 15 秒）
         for _ in range(30):
             if video_data:
