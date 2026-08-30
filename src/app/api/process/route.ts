@@ -11,6 +11,7 @@ import { SUMMARIZE_SYSTEM_PROMPT, formatTranscriptForPrompt } from "@/lib/prompt
 import { saveTranscript } from "@/lib/transcript-store";
 import { tryEmbedSegments } from "@/lib/embeddings";
 import { getCachedResult, cacheResult } from "@/lib/process-cache";
+import { verifyAccessCode, getClientIp, checkRateLimit } from "@/lib/security";
 import { existsSync } from "fs";
 import type { ProcessResult } from "@/lib/video-processor";
 
@@ -160,6 +161,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "目前仅支持 YouTube 和抖音链接" }, { status: 400 });
     }
 
+    // 访问码门禁
+    if (!verifyAccessCode(request.headers.get("x-access-code"))) {
+      return NextResponse.json(
+        { success: false, error: "需要访问码，请向站长获取" },
+        { status: 401 }
+      );
+    }
+
+    // 每 IP 限流：10 分钟最多 10 次处理（保护 API Key 不被刷爆）
+    const ip = getClientIp(request);
+    const rl = checkRateLimit(`process:${ip}`, 10, 10 * 60 * 1000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { success: false, error: `请求过于频繁，请 ${rl.retryAfterSec} 秒后再试` },
+        { status: 429 }
+      );
+    }
+
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
@@ -172,8 +191,10 @@ export async function POST(request: NextRequest) {
           send({ type: "heartbeat" });
         }, 15000);
 
+        // info 声明在 try 外：catch 分支需要用它清理临时文件
+        let info: { id: string; title: string; duration: number; thumbnail: string; uploader: string } | undefined;
+
         try {
-          let info: { id: string; title: string; duration: number; thumbnail: string; uploader: string };
           let transcript: { text: string; segments: { start: number; end: number; text: string }[]; source: "builtin" | "whisper" };
           let aiResult: Record<string, unknown>;
           let summarizeUsage: TokenUsage | null = null;
@@ -270,6 +291,10 @@ export async function POST(request: NextRequest) {
         } catch (error: unknown) {
           const message = error instanceof Error ? error.message : "处理失败，请稍后重试";
           send({ type: "error", message });
+          // 异常分支也要清理已下载的临时文件，防止磁盘泄漏
+          if (info) {
+            await cleanupTempFiles(info.id);
+          }
         } finally {
           clearInterval(heartbeatInterval);
           controller.close();
@@ -290,6 +315,12 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  if (!verifyAccessCode(request.headers.get("x-access-code"))) {
+    return NextResponse.json(
+      { success: false, error: "需要访问码，请向站长获取" },
+      { status: 401 }
+    );
+  }
   try {
     const { videoId } = await request.json() as { videoId?: string };
     if (!videoId) {

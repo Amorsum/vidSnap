@@ -5,6 +5,7 @@ import { callLLMWithPrompt } from "@/lib/llm";
 import { FOLLOWUP_SYSTEM_PROMPT, formatTranscriptForPrompt } from "@/lib/prompts";
 import { embedQuery } from "@/lib/embeddings";
 import { searchByEmbedding, searchByKeyword } from "@/lib/rag";
+import { verifyAccessCode, getClientIp, checkRateLimit } from "@/lib/security";
 
 type RetrievalSource = "rag" | "keyword" | "full";
 
@@ -51,6 +52,24 @@ async function retrieveContext(
 
 export async function POST(request: NextRequest) {
   try {
+    // 访问码门禁
+    if (!verifyAccessCode(request.headers.get("x-access-code"))) {
+      return NextResponse.json(
+        { success: false, error: "需要访问码，请向站长获取" },
+        { status: 401 }
+      );
+    }
+
+    // 每 IP 限流：10 分钟最多 30 次追问
+    const ip = getClientIp(request);
+    const rl = checkRateLimit(`followup:${ip}`, 30, 10 * 60 * 1000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { success: false, error: `请求过于频繁，请 ${rl.retryAfterSec} 秒后再试` },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json();
     const { videoId, question } = body as { videoId?: string; question?: string };
 

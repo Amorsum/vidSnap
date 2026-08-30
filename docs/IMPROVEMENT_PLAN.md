@@ -54,10 +54,10 @@
 
 ### 🔴 安全 / 成本（不解决不能公开）
 
-- [ ] **零鉴权 + 零限流**：`/api/process` 任何人可无限调用，API Key 会被刷爆产生真实账单（最紧急）
-- [ ] **无额度/配额管理**：无用户概念、无每日调用上限
+- [x] **零鉴权 + 零限流**：已加访问码门禁（ACCESS_CODE + /api/verify + 前端门禁页）+ 每 IP 滑动窗口限流（2026-08-30，轻量版；完整 NextAuth 用户体系仍属 B3）
+- [ ] **无额度/配额管理**：有每 IP 限流兜底，但无用户概念、无每日调用上限（B3 完整版待做）
 - [ ] **抖音 cookies 明文存储**：依赖 Firefox 登录态，脆弱且无法规模化
-- [ ] **临时文件清理只在成功路径**：异常分支不清理，泄漏磁盘/音频文件
+- [x] **临时文件清理只在成功路径**：缓存命中与异常分支均已清理（2026-08-30）
 
 ### 🟠 可靠性 / 架构
 
@@ -162,6 +162,7 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-08-30 | 上线修复 | B3 轻量版：访问码门禁（ACCESS_CODE + verify 接口 + 前端门禁页 + localStorage/URL参数）+ 每 IP 滑动窗口限流（CF 真实 IP，防暴力猜测失败计数）+ 异常分支临时文件清理 + autostart 幂等/端口轮询 + 抖音脚本 UTF-8 根治 emoji + .env.example；真机验证 401/429/管线全通过 | security.ts, verify/route.ts, process/followup route.ts, page.tsx, autostart.bat, douyin_playwright.py | ✅ 已完成 |
 | 2026-08-30 | 上线修复 | code-review 高优先级修复：恢复缓存快速路径（命中跳过下载，11s→3s 实测）+ 追问竞态（turn 按 id 更新 + 并发守卫）+ tiny 模型限定回抖音 + 抖音错误消息带真实原因 + yt-dlp 版本兼容探测（旧版本自动降级），真机验证通过 | route.ts, platforms.ts, video-processor.ts, page.tsx, ChatPanel.tsx, douyin-processor.ts | ✅ 已完成 |
 | 2026-08-30 | 收尾 | 清理 debug 代码 + 5 个逻辑 commit + push（UI重构/架构重构/yt-dlp修复/部署/docs） | - | ✅ 已完成 |
 | 2026-08-26 | 上线修复 | 封面加载失败兜底（🎬占位图）+ yt-dlp 加浏览器 UA 伪装（3处调用），缓解 YouTube 反爬识别 | ResultPanel.tsx, video-processor.ts | ✅ 已完成 |

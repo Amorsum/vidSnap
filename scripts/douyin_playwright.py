@@ -137,6 +137,10 @@ def parse_video_info(data, video_id):
     return result
 
 def main():
+    # 中文 Windows 的管道 stdout 默认 cp936，标题含 emoji 时 print 会抛
+    # UnicodeEncodeError 导致整个结果丢失；强制 UTF-8 输出根治
+    sys.stdout.reconfigure(encoding="utf-8")
+
     if len(sys.argv) < 2:
         print(json.dumps({"error": "Usage: python douyin_playwright.py <url>"}))
         sys.exit(1)
