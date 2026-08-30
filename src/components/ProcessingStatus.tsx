@@ -29,8 +29,8 @@ export default function ProcessingStatus({
 
   if (errorMessage) {
     return (
-      <div className="w-full max-w-2xl rounded-2xl border border-red-500/20 bg-red-500/5 p-6">
-        <p className="text-sm text-red-400">{errorMessage}</p>
+      <div className="w-full max-w-2xl rounded-[10px] border border-red-200 bg-red-50 p-5">
+        <p className="text-sm text-red-600">{errorMessage}</p>
       </div>
     );
   }
@@ -40,16 +40,16 @@ export default function ProcessingStatus({
   const displayLabel = step ? (stepLabels[step] || "正在处理...") : "正在处理...";
 
   return (
-    <div className="w-full max-w-2xl space-y-4 rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur">
+    <div className="w-full max-w-2xl space-y-4 rounded-[10px] border border-[#e5e6eb] bg-white p-6 shadow-sm">
       {/* 进度条 */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-sm text-white">{displayLabel}</span>
-          <span className="text-xs font-mono text-[#6c5ce7]">{displayPercent}%</span>
+          <span className="text-sm text-[#1d2129]">{displayLabel}</span>
+          <span className="text-xs font-mono text-[#165dff]">{displayPercent}%</span>
         </div>
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#e5e6eb]">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-[#6c5ce7] to-[#00cec9] transition-all duration-300 ease-out"
+            className="h-full rounded-full bg-[#165dff] transition-all duration-300 ease-out"
             style={{ width: `${displayPercent}%` }}
           />
         </div>
@@ -60,27 +60,25 @@ export default function ProcessingStatus({
         {steps.map((s, i) => (
           <div key={s.key} className="flex items-center gap-2">
             <div
-              className={`h-2 w-2 rounded-full transition-all duration-500 ${
-                i < currentStepIndex
-                  ? "bg-[#00cec9]"
+              className={`h-2 w-2 rounded-full transition-colors ${
+                i < currentStepIndex || step === "done"
+                  ? "bg-[#165dff]"
                   : i === currentStepIndex
-                    ? "bg-[#6c5ce7] animate-pulse"
-                    : step === "done"
-                      ? "bg-[#00cec9]"
-                      : "bg-white/20"
+                    ? "bg-[#165dff] animate-pulse"
+                    : "bg-[#e5e6eb]"
               }`}
             />
             <span
               className={`text-xs transition-colors ${
-                i <= currentStepIndex || step === "done" ? "text-[#a0a0b0]" : "text-white/30"
+                i <= currentStepIndex || step === "done" ? "text-[#86909c]" : "text-[#c9cdd4]"
               }`}
             >
               {s.shortLabel}
             </span>
             {i < steps.length - 1 && (
               <div
-                className={`mx-1 h-px w-4 transition-colors duration-500 ${
-                  i < currentStepIndex || step === "done" ? "bg-[#00cec9]/50" : "bg-white/10"
+                className={`mx-1 h-px w-4 transition-colors ${
+                  i < currentStepIndex || step === "done" ? "bg-[#165dff]/50" : "bg-[#e5e6eb]"
                 }`}
               />
             )}

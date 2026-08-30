@@ -5,6 +5,7 @@ import Header from "@/components/Header";
 import URLInput from "@/components/URLInput";
 import ProcessingStatus from "@/components/ProcessingStatus";
 import ResultPanel from "@/components/ResultPanel";
+import ChatPanel from "@/components/ChatPanel";
 import FollowUpInput from "@/components/FollowUpInput";
 import Footer from "@/components/Footer";
 
@@ -119,6 +120,16 @@ export default function Home() {
   const handleFollowUp = useCallback(async (question: string) => {
     if (!result) return;
     setFollowUpLoading(true);
+    // 立即显示用户的问题（像微信发送消息），answer 先留空
+    setConversation((prev) => [...prev, { question, answer: "" }]);
+
+    const updateLast = (answer: string) => {
+      setConversation((prev) => {
+        const next = [...prev];
+        next[next.length - 1] = { question, answer };
+        return next;
+      });
+    };
 
     try {
       const response = await fetch("/api/followup", {
@@ -128,37 +139,31 @@ export default function Home() {
       });
       const data = await response.json();
       if (data.success) {
-        setConversation((prev) => [...prev, { question, answer: data.answer }]);
+        updateLast(data.answer);
       } else {
-        setConversation((prev) => [...prev, { question, answer: data.error || "追问失败" }]);
+        updateLast(data.error || "追问失败");
       }
     } catch {
-      setConversation((prev) => [...prev, { question, answer: "网络请求失败，请稍后重试" }]);
+      updateLast("网络请求失败，请稍后重试");
     } finally {
       setFollowUpLoading(false);
     }
   }, [result]);
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#0f0f0f]">
-      {/* 背景光效 */}
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -left-48 -top-48 h-[500px] w-[500px] rounded-full bg-[#6c5ce7] opacity-[0.07] blur-[120px]" />
-        <div className="absolute -bottom-48 -right-48 h-[500px] w-[500px] rounded-full bg-[#00cec9] opacity-[0.07] blur-[120px]" />
-      </div>
-
+    <div className="flex min-h-screen flex-col">
       <Header />
 
-      <main className="relative z-10 flex flex-1 flex-col items-center px-6 py-16">
+      <main className="flex flex-1 flex-col items-center px-6 py-12">
         {/* Hero 文案 */}
-        <div className="mb-12 max-w-2xl text-center">
-          <h1 className="mb-4 text-5xl font-bold tracking-tight text-white">
-            <span className="bg-gradient-to-r from-[#6c5ce7] to-[#00cec9] bg-clip-text text-transparent">
-              AI 视频总结
-            </span>
+        <div className="mb-10 max-w-2xl text-center">
+          <h1 className="mb-3 text-4xl font-bold tracking-tight text-[#1d2129]">
+            AI 视频<span className="text-[#165dff]">总结</span>
           </h1>
-          <p className="text-lg text-[#a0a0b0]">
-            不用从头追到尾，粘贴链接知原委<br />支持 YouTube / 抖音
+          <p className="text-base text-[#86909c]">
+            不用从头追到尾，粘贴链接知原委
+            <br />
+            支持 YouTube / 抖音
           </p>
         </div>
 
@@ -166,7 +171,7 @@ export default function Home() {
         <URLInput onSubmit={handleSubmit} isLoading={isLoading} />
 
         {/* 进度展示 */}
-        <div className="mt-8">
+        <div className="mt-6">
           <ProcessingStatus
             isLoading={isLoading}
             step={progressStep}
@@ -175,38 +180,37 @@ export default function Home() {
           />
         </div>
 
-        {/* 结果展示 */}
+        {/* 结果展示：左右分栏（左总结、右追问） */}
         {result && (
-          <div className="mt-8">
-            <ResultPanel
-              video={result.video}
-              result={result.result as { overall: string; videoType?: string; segments: { title: string; start: number; end: number; points: { time: string; text: string }[] }[] }}
-              transcriptSource={result.transcriptSource}
-              conversation={conversation}
-              followUpLoading={followUpLoading}
-            />
+          <div className="mt-8 grid w-full max-w-6xl items-start gap-6 lg:grid-cols-[1fr_380px]">
+            {/* 左：视频总结 */}
+            <div className="min-w-0">
+              <ResultPanel
+                video={result.video}
+                result={result.result as { overall: string; videoType?: string; segments: { title: string; start: number; end: number; points: { time: string; text: string }[] }[] }}
+                transcriptSource={result.transcriptSource}
+              />
+            </div>
+            {/* 右：追问对话 */}
+            <div className="flex flex-col rounded-[10px] border border-[#e5e6eb] bg-white p-4 shadow-sm lg:sticky lg:top-6 lg:h-[calc(100vh-140px)]">
+              <ChatPanel conversation={conversation} followUpLoading={followUpLoading} onExample={handleFollowUp} />
+              <FollowUpInput onSubmit={handleFollowUp} isLoading={followUpLoading} />
+            </div>
           </div>
         )}
 
         {/* AI 流式分析中 */}
         {streamingText && !result && (
-          <div className="mt-8 w-full max-w-2xl rounded-2xl border border-[#6c5ce7]/20 bg-[#6c5ce7]/5 p-6">
+          <div className="mt-8 w-full max-w-2xl rounded-[10px] border border-[#e5e6eb] bg-white p-6 shadow-sm">
             <div className="mb-4 flex items-center gap-2">
               <span className="animate-pulse text-lg">🤖</span>
-              <h3 className="text-sm font-medium text-white">AI 实时分析中...</h3>
+              <h3 className="text-sm font-medium text-[#1d2129]">AI 实时分析中...</h3>
             </div>
-            <div className="max-h-96 overflow-y-auto rounded-xl border border-white/5 bg-white/5 p-4">
-              <pre className="whitespace-pre-wrap text-sm leading-relaxed text-[#a0a0b0] font-sans">
+            <div className="max-h-96 overflow-y-auto rounded-lg bg-[#f7f8fa] p-4">
+              <pre className="whitespace-pre-wrap text-sm leading-relaxed text-[#4e5969] font-sans">
                 {streamingText}
               </pre>
             </div>
-          </div>
-        )}
-
-        {/* 追问输入 */}
-        {result && (
-          <div className="mt-8">
-            <FollowUpInput onSubmit={handleFollowUp} isLoading={followUpLoading} />
           </div>
         )}
       </main>

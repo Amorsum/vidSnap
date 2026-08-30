@@ -1,7 +1,6 @@
-interface Turn {
-  question: string;
-  answer: string;
-}
+"use client";
+
+import { useState } from "react";
 
 interface ResultPanelProps {
   video: {
@@ -17,8 +16,6 @@ interface ResultPanelProps {
     segments: { title: string; start: number; end: number; points: { time: string; text: string }[] }[];
   };
   transcriptSource: "builtin" | "whisper";
-  conversation: Turn[];
-  followUpLoading?: boolean;
 }
 
 function formatDuration(seconds: number): string {
@@ -29,31 +26,8 @@ function formatDuration(seconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-/** 渲染回答文本，高亮 [MM:SS] 时间戳引用 */
-function renderAnswer(text: string) {
-  const parts = text.split(/(\[[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?\])/g);
-  return parts.map((part, i) => {
-    if (/^\[[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?\]$/.test(part)) {
-      return (
-        <span
-          key={i}
-          className="mx-0.5 rounded bg-[#00cec9]/20 px-1 font-mono text-[11px] text-[#00cec9]"
-        >
-          {part}
-        </span>
-      );
-    }
-    return <span key={i}>{part}</span>;
-  });
-}
-
-export default function ResultPanel({
-  video,
-  result,
-  transcriptSource,
-  conversation,
-  followUpLoading,
-}: ResultPanelProps) {
+export default function ResultPanel({ video, result, transcriptSource }: ResultPanelProps) {
+  const [imgError, setImgError] = useState(false);
   const answer = result as {
     overall: string;
     videoType?: string;
@@ -61,109 +35,92 @@ export default function ResultPanel({
   };
 
   return (
-    <div className="w-full max-w-2xl space-y-6">
+    <div className="w-full space-y-5">
       {/* 视频信息卡片 */}
-      <div className="flex gap-4 rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-        <img
-          src={video.thumbnail}
-          alt={video.title}
-          className="h-24 w-40 flex-shrink-0 rounded-xl object-cover"
-        />
+      <div className="flex gap-4 rounded-[10px] border border-[#e5e6eb] bg-white p-4 shadow-sm">
+        {imgError || !video.thumbnail ? (
+          <div className="flex h-24 w-40 flex-shrink-0 items-center justify-center rounded-lg bg-[#f2f3f5]">
+            <span className="text-3xl">🎬</span>
+          </div>
+        ) : (
+          <img
+            src={video.thumbnail}
+            alt={video.title}
+            onError={() => setImgError(true)}
+            className="h-24 w-40 flex-shrink-0 rounded-lg object-cover"
+          />
+        )}
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-base font-semibold text-white">
-            {video.title}
-          </h2>
-          <div className="mt-1 flex items-center gap-3 text-xs text-[#a0a0b0]">
+          <h2 className="truncate text-base font-semibold text-[#1d2129]">{video.title}</h2>
+          <div className="mt-1.5 flex items-center gap-3 text-xs text-[#86909c]">
             <span>{video.uploader}</span>
-            <span className="h-3 w-px bg-white/20" />
+            <span className="h-3 w-px bg-[#e5e6eb]" />
             <span>{formatDuration(video.duration)}</span>
-            <span className="h-3 w-px bg-white/20" />
-            <span className={`rounded-full px-2 py-0.5 text-[10px] ${transcriptSource === "builtin" ? "bg-[#00cec9]/10 text-[#00cec9]" : "bg-[#6c5ce7]/10 text-[#6c5ce7]"}`}>
+            <span className="h-3 w-px bg-[#e5e6eb]" />
+            <span className={`rounded-full px-2 py-0.5 text-[10px] ${transcriptSource === "builtin" ? "bg-[#e8f3ff] text-[#165dff]" : "bg-[#f2f3f5] text-[#86909c]"}`}>
               {transcriptSource === "builtin" ? "自带字幕" : "AI 识别"}
             </span>
           </div>
         </div>
       </div>
 
-      {/* AI 结果 */}
-      <div className="rounded-2xl border border-[#6c5ce7]/20 bg-[#6c5ce7]/5 p-6">
+      {/* AI 总结 */}
+      <div className="rounded-[10px] border border-[#e5e6eb] bg-white p-6 shadow-sm">
         <div className="mb-4 flex items-center gap-2">
           <span className="text-lg">🤖</span>
-          <h3 className="text-sm font-medium text-white">AI 总结</h3>
+          <h3 className="text-sm font-semibold text-[#1d2129]">AI 总结</h3>
           {answer.videoType && (
-            <span className="rounded-full bg-[#6c5ce7]/20 px-2 py-0.5 text-[10px] text-[#a29bfe]">
+            <span className="rounded-full bg-[#e8f3ff] px-2 py-0.5 text-[10px] text-[#165dff]">
               {answer.videoType}
             </span>
           )}
         </div>
 
         {/* 一句话总结 */}
-        <div className="mb-6 rounded-xl border border-white/5 bg-white/5 px-4 py-3">
-          <p className="text-sm text-[#a0a0b0]">💡 一句话总结</p>
-          <p className="mt-1 text-sm text-white">{answer.overall}</p>
+        <div className="mb-6 rounded-lg bg-[#f7f8fa] px-4 py-3">
+          <p className="text-xs text-[#86909c]">💡 一句话总结</p>
+          <p className="mt-1 text-sm text-[#1d2129]">{answer.overall}</p>
         </div>
 
-        {/* 分段详情 */}
+        {/* 时间轴分段 */}
         {answer.segments && answer.segments.length > 0 && (
-          <div className="space-y-4">
-            <p className="text-sm font-medium text-[#a0a0b0]">📍 视频分段</p>
-            {answer.segments.map((seg, i) => (
-              <div key={i} className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
-                <div className="mb-2 flex items-center justify-between">
-                  <h4 className="text-sm font-medium text-white">{seg.title}</h4>
-                  <span className="text-xs text-[#666]">
-                    {formatDuration(seg.start)} - {formatDuration(seg.end)}
-                  </span>
-                </div>
-                <ul className="space-y-1.5">
-                  {seg.points.map((point, j) => (
-                    <li key={j} className="flex items-start gap-2 text-sm text-[#ccc]">
-                      <span className="mt-0.5 flex-shrink-0 rounded bg-[#6c5ce7]/20 px-1.5 py-0.5 font-mono text-[10px] text-[#a29bfe]">
-                        {point.time}
+          <div>
+            <p className="mb-4 text-sm font-medium text-[#86909c]">📍 时间轴分段</p>
+            <div>
+              {answer.segments.map((seg, i) => (
+                <div key={i} className="flex gap-3">
+                  {/* 时间轴节点（圆点 + 连接线） */}
+                  <div className="flex flex-col items-center">
+                    <span className="mt-5 h-2.5 w-2.5 flex-shrink-0 rounded-full bg-[#165dff]" />
+                    {i < answer.segments.length - 1 && (
+                      <span className="w-px flex-1 bg-[#e5e6eb]" />
+                    )}
+                  </div>
+                  {/* 片段内容 */}
+                  <div className="flex-1 rounded-lg border border-[#e5e6eb] bg-white p-4 transition-shadow hover:shadow-sm">
+                    <div className="mb-2 flex items-center justify-between">
+                      <h4 className="text-sm font-semibold text-[#1d2129]">{seg.title}</h4>
+                      <span className="text-xs text-[#86909c]">
+                        {formatDuration(seg.start)} - {formatDuration(seg.end)}
                       </span>
-                      <span>{point.text}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
+                    </div>
+                    <ul className="space-y-1.5">
+                      {seg.points.map((point, j) => (
+                        <li key={j} className="flex items-start gap-2 text-sm text-[#4e5969]">
+                          <button className="mt-0.5 flex-shrink-0 cursor-pointer rounded-md bg-[#e8f3ff] px-1.5 py-0.5 font-mono text-[10px] text-[#165dff] transition-colors hover:bg-[#165dff] hover:text-white">
+                            {point.time}
+                          </button>
+                          <span>{point.text}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
-
-      {/* 追问对话历史 */}
-      {(conversation.length > 0 || followUpLoading) && (
-        <div className="rounded-2xl border border-[#00cec9]/20 bg-[#00cec9]/5 p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <span className="text-lg">💬</span>
-            <h3 className="text-sm font-medium text-white">追问对话</h3>
-          </div>
-          <div className="space-y-5">
-            {conversation.map((turn, i) => (
-              <div key={i} className="space-y-2">
-                <div className="flex items-start gap-2">
-                  <span className="mt-0.5 flex-shrink-0 rounded bg-[#00cec9]/20 px-2 py-0.5 text-[10px] text-[#00cec9]">
-                    问
-                  </span>
-                  <p className="text-sm text-white">{turn.question}</p>
-                </div>
-                <div className="flex items-start gap-2">
-                  <span className="mt-0.5 flex-shrink-0 rounded bg-[#6c5ce7]/20 px-2 py-0.5 text-[10px] text-[#a29bfe]">
-                    答
-                  </span>
-                  <p className="text-sm leading-relaxed text-[#ccc]">{renderAnswer(turn.answer)}</p>
-                </div>
-              </div>
-            ))}
-            {followUpLoading && (
-              <div className="flex items-center gap-2">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#00cec9] border-t-transparent" />
-                <span className="text-sm text-[#a0a0b0]">思考中...</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

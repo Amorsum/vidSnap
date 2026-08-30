@@ -22,9 +22,9 @@ export default function URLInput({ onSubmit, isLoading }: URLInputProps) {
 
   return (
     <div className="w-full max-w-2xl">
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-2 backdrop-blur">
-        <div className="flex items-center gap-2 px-4">
-          <span className="text-[#a0a0b0]">🔗</span>
+      <div className="rounded-[10px] border border-[#e5e6eb] bg-white p-2 shadow-sm transition-colors focus-within:border-[#165dff]">
+        <div className="flex items-center gap-2 px-3">
+          <span className="text-[#86909c]">🔗</span>
           <input
             type="text"
             value={value}
@@ -32,19 +32,19 @@ export default function URLInput({ onSubmit, isLoading }: URLInputProps) {
             onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
             placeholder="粘贴 YouTube / 抖音视频链接..."
             disabled={isLoading}
-            className="flex-1 bg-transparent py-3 text-white placeholder-[#666] outline-none disabled:opacity-50"
+            className="flex-1 bg-transparent py-3 text-[#1d2129] placeholder-[#c9cdd4] outline-none disabled:opacity-50"
           />
           <button
             onClick={handleSubmit}
             disabled={!value.trim() || isLoading}
-            className="rounded-xl bg-gradient-to-r from-[#6c5ce7] to-[#00cec9] px-6 py-2.5 text-sm font-medium text-white transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-lg bg-[#165dff] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#4080ff] disabled:cursor-not-allowed disabled:bg-[#94bfff]"
           >
             {isLoading ? "处理中..." : "开始"}
           </button>
         </div>
       </div>
       {showExtracted && (
-        <div className="mt-2 rounded-lg border border-[#00cec9]/20 bg-[#00cec9]/5 px-3 py-2 text-xs text-[#00cec9]">
+        <div className="mt-2 rounded-lg border border-[#e5e6eb] bg-white px-3 py-2 text-xs text-[#165dff]">
           🔍 已自动识别链接：<span className="font-mono">{extractedUrl}</span>
         </div>
       )}
