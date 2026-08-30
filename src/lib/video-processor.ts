@@ -46,6 +46,34 @@ function getCookieArgs(): string[] {
   return ["--cookies-from-browser", "firefox"];
 }
 
+// --js-runtimes 参数在 yt-dlp 2025.02 才加入，旧版本会报 unrecognized arguments 直接失败。
+// 启动时探测一次版本并缓存结果，旧版本自动降级（不带该参数）。
+let jsRuntimesSupported: boolean | null = null;
+
+async function supportsJsRuntimes(): Promise<boolean> {
+  if (jsRuntimesSupported !== null) return jsRuntimesSupported;
+  try {
+    const { stdout } = await execFileAsync(YT_DLP_PATH, ["--version"]);
+    const [major, minor = 0] = stdout.trim().split(".").map(Number);
+    jsRuntimesSupported = major > 2025 || (major === 2025 && minor >= 2);
+  } catch {
+    jsRuntimesSupported = false;
+  }
+  return jsRuntimesSupported;
+}
+
+/**
+ * 统一的 yt-dlp 公共参数：浏览器 UA 伪装 + JS runtime（新版支持时）
+ * 三个调用点（信息提取/下载音频/下载字幕）共用，避免反爬参数只改一处导致路径相关失败
+ */
+async function getCommonYtDlpArgs(): Promise<string[]> {
+  const args = ["--user-agent", BROWSER_UA];
+  if (await supportsJsRuntimes()) {
+    args.push("--js-runtimes", "node");
+  }
+  return args;
+}
+
 /**
  * 解析视频链接，提取视频元信息（支持 YouTube / 抖音 / 等 yt-dlp 兼容平台）
  */
@@ -53,8 +81,7 @@ export async function extractVideoInfo(url: string): Promise<VideoInfo> {
   const args = [
     "--dump-json",
     "--no-playlist",
-    "--user-agent", BROWSER_UA,
-    "--js-runtimes", "node",
+    ...(await getCommonYtDlpArgs()),
     ...getCookieArgs(),
     url,
   ];
@@ -73,22 +100,22 @@ export async function extractVideoInfo(url: string): Promise<VideoInfo> {
 /**
  * 下载音频（仅音频，不下载视频）
  * 不再尝试下载字幕，统一使用 Whisper ASR 转写
+ * info 可由调用方预先提取（如 tryDownloadSubtitles 已拿到），避免重复 --dump-json
  */
-export async function downloadAudio(url: string): Promise<ProcessResult> {
+export async function downloadAudio(url: string, preInfo?: VideoInfo): Promise<ProcessResult> {
   await ensureTempDir();
 
   const platform = detectPlatform(url);
   if (platform === "youtube") {
     // YouTube 走 yt-dlp 流程
-    const info = await extractVideoInfo(url);
+    const info = preInfo ?? (await extractVideoInfo(url));
     const outputTemplate = path.join(TEMP_DIR, `${info.id}.%(ext)s`);
 
     await execFileAsync(YT_DLP_PATH, [
       "-f", "bestaudio[ext=m4a]/bestaudio",
       "--output", outputTemplate,
       "--no-playlist",
-      "--user-agent", BROWSER_UA,
-      "--js-runtimes", "node",
+      ...(await getCommonYtDlpArgs()),
       ...getCookieArgs(),
       url,
     ]);
@@ -108,13 +135,14 @@ export async function downloadAudio(url: string): Promise<ProcessResult> {
 /**
  * 仅下载字幕（不下载视频），用于 YouTube 快速路径
  * 成功返回字幕文件路径，失败返回 null
+ * info 可由调用方预先提取，避免重复 --dump-json
  */
-export async function tryDownloadSubtitles(url: string): Promise<{
+export async function tryDownloadSubtitles(url: string, preInfo?: VideoInfo): Promise<{
   info: VideoInfo;
   subtitlePath: string | null;
 }> {
   await ensureTempDir();
-  const info = await extractVideoInfo(url);
+  const info = preInfo ?? (await extractVideoInfo(url));
   const outputTemplate = path.join(TEMP_DIR, `${info.id}`);
 
   // 先尝试手动字幕，再尝试自动字幕
@@ -132,8 +160,7 @@ export async function tryDownloadSubtitles(url: string): Promise<{
         "--convert-subs", "srt",
         "--output", outputTemplate,
         "--no-playlist",
-        "--user-agent", BROWSER_UA,
-        "--js-runtimes", "node",
+        ...(await getCommonYtDlpArgs()),
         ...getCookieArgs(),
         url,
       ], { timeout: 30000 });

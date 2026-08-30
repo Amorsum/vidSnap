@@ -34,10 +34,19 @@ export async function extractDouyinInfo(url: string): Promise<DouyinResult> {
   });
 
   // stderr 包含日志，stdout 包含 JSON 结果
-  const data = JSON.parse(stdout) as DouyinRawInfo;
+  // Python 在中文 Windows 的 stdout 是 cp936，标题含 emoji 时输出可能为空/损坏，需要兜底
+  let data: DouyinRawInfo;
+  try {
+    data = JSON.parse(stdout) as DouyinRawInfo;
+  } catch {
+    console.error("[douyin] 解析脚本输出异常，stderr:", stderr);
+    throw new Error("抖音解析失败（解析结果异常，请稍后重试）");
+  }
 
   if (data.error) {
-    throw new Error("抖音解析失败（抖音可能已改版或反爬升级），建议换 YouTube 链接试试");
+    // 保留 Python 侧的真实原因（cookie 过期/视频删除/反爬等），方便排查与引导用户
+    console.error("[douyin] 解析失败:", data.error, "stderr:", stderr);
+    throw new Error(`抖音解析失败（${data.error}）`);
   }
 
   return {

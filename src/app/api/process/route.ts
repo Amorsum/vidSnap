@@ -50,7 +50,7 @@ function parseAIJSON<T>(text: string): T {
 async function getTranscriptSmart(
   processResult: ProcessResult,
   send: (data: unknown) => void,
-  options?: { model?: string; isShortVideo?: boolean }
+  options?: { model?: string }
 ): Promise<TranscriptResult> {
   const hasCloudKey = !!process.env.SENSEVOICE_API_KEY;
 
@@ -180,16 +180,16 @@ export async function POST(request: NextRequest) {
           let summarizeLatencyMs = 0;
           const totalStart = Date.now();
 
-          // 统一处理：根据平台选处理器下载（字幕优先或音频）
+          // 统一处理：先轻量提取视频信息（不下载媒体）
           send(progress("downloading", 0));
           const processor = getProcessor(url);
-          const downloadResult = await processor.download(url);
-          info = downloadResult.info;
-          const subtitlePath = downloadResult.subtitlePath;
-          send(progress("downloading", 100));
+          info = await processor.getInfo(url);
+          send(progress("downloading", 10));
 
+          // 缓存优先：命中则完全跳过下载与转写（快速路径，避免重复下载浪费）
           const cached = getCachedResult(info.id);
           if (cached) {
+            send(progress("downloading", 100));
             transcript = {
               text: cached.transcriptText,
               segments: cached.transcriptSegments,
@@ -198,6 +198,11 @@ export async function POST(request: NextRequest) {
             aiResult = cached.result;
             saveTranscript(info.id, transcript.segments, info, cached.transcriptEmbeddings);
           } else {
+            // 缓存未命中才下载（字幕优先或音频）
+            const downloadResult = await processor.download(url, info);
+            const subtitlePath = downloadResult.subtitlePath;
+            send(progress("downloading", 100));
+
             // 转写：字幕优先，否则下载音频转写
             if (subtitlePath && existsSync(subtitlePath)) {
               transcript = await parseBuiltinSubtitle(subtitlePath);
@@ -207,9 +212,10 @@ export async function POST(request: NextRequest) {
                 audioPath: downloadResult.audioPath,
                 subtitlePath,
               };
+              // 短视频用 tiny 模型提速（仅抖音；YouTube 保持默认模型保证转写质量）
               const isShortVideo = info.duration < 180;
-              const model = isShortVideo && process.env.WHISPER_MODEL !== "tiny" ? "tiny" : undefined;
-              transcript = await getTranscriptSmart(processResult, send, { model, isShortVideo });
+              const model = processor.useTinyForShortVideos && isShortVideo && process.env.WHISPER_MODEL !== "tiny" ? "tiny" : undefined;
+              transcript = await getTranscriptSmart(processResult, send, { model });
             }
 
             if (transcript.segments.length === 0) {

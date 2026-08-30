@@ -15,33 +15,54 @@ export interface DownloadResult {
 export interface PlatformProcessor {
   /** 判断 URL 是否属于该平台 */
   matches(url: string): boolean;
-  /** 提取视频信息 + 下载（字幕优先或音频），返回音频/字幕路径 */
-  download(url: string): Promise<DownloadResult>;
+  /** 轻量提取视频元信息（不下载媒体），供缓存查询等使用 */
+  getInfo(url: string): Promise<VideoInfo>;
+  /** 下载字幕/音频（info 为 getInfo 的结果，避免重复解析） */
+  download(url: string, info: VideoInfo): Promise<DownloadResult>;
+  /** 转写策略：短视频（<180s）是否使用 tiny 模型（抖音短视频专用） */
+  useTinyForShortVideos?: boolean;
 }
 
 // ─── YouTube：字幕优先，无字幕则下载音频 ───
 
 const youtubeProcessor: PlatformProcessor = {
   matches: (url) => detectPlatform(url) === "youtube",
-  download: async (url) => {
+  getInfo: (url) => extractVideoInfo(url),
+  download: async (url, info) => {
     // 字幕优先：命中字幕则跳过下载音频（省 10-60s）
-    const sub = await tryDownloadSubtitles(url);
+    const sub = await tryDownloadSubtitles(url, info);
     if (sub.subtitlePath) {
       return { info: sub.info, audioPath: "", subtitlePath: sub.subtitlePath };
     }
     // 无字幕，下载音频
-    const result = await downloadAudio(url);
+    const result = await downloadAudio(url, info);
     return { info: result.info, audioPath: result.audioPath, subtitlePath: null };
   },
 };
 
 // ─── 抖音：Playwright 提取信息 + ffmpeg 下载 ───
 
+// getInfo 阶段提取到的视频直链缓存（按 URL 记忆），供 download 阶段复用，避免二次 Playwright 解析
+const douyinVideoUrlMemo = new Map<string, string>();
+
 const douyinProcessor: PlatformProcessor = {
   matches: (url) => detectPlatform(url) === "douyin",
-  download: async (url) => {
-    const { extractDouyinInfo, downloadDouyinAudio } = await import("./douyin-processor");
+  useTinyForShortVideos: true,
+  getInfo: async (url) => {
+    const { extractDouyinInfo } = await import("./douyin-processor");
     const { info, videoUrl } = await extractDouyinInfo(url);
+    douyinVideoUrlMemo.set(url, videoUrl);
+    return info;
+  },
+  download: async (url, info) => {
+    const { extractDouyinInfo, downloadDouyinAudio } = await import("./douyin-processor");
+    let videoUrl = douyinVideoUrlMemo.get(url);
+    douyinVideoUrlMemo.delete(url);
+    if (!videoUrl) {
+      // 缓存命中时未走 download，或并发同 URL 已被消费：重新提取兜底
+      const extracted = await extractDouyinInfo(url);
+      videoUrl = extracted.videoUrl;
+    }
     const audioPath = await downloadDouyinAudio(videoUrl, info.id);
     return { info, audioPath, subtitlePath: null };
   },

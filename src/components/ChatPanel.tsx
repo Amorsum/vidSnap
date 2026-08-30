@@ -1,4 +1,5 @@
-interface Turn {
+export interface Turn {
+  id: number;
   question: string;
   answer: string;
 }
@@ -52,7 +53,8 @@ export default function ChatPanel({ conversation, followUpLoading, onExample }: 
                 <button
                   key={q}
                   onClick={() => onExample?.(q)}
-                  className="rounded-full border border-[#e5e6eb] bg-white px-3 py-1.5 text-xs text-[#4e5969] transition-colors hover:border-[#165dff] hover:text-[#165dff]"
+                  disabled={followUpLoading}
+                  className="rounded-full border border-[#e5e6eb] bg-white px-3 py-1.5 text-xs text-[#4e5969] transition-colors hover:border-[#165dff] hover:text-[#165dff] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-[#e5e6eb] disabled:hover:text-[#4e5969]"
                 >
                   {q}
                 </button>
@@ -61,8 +63,8 @@ export default function ChatPanel({ conversation, followUpLoading, onExample }: 
           </div>
         )}
 
-        {conversation.map((turn, i) => (
-          <div key={i} className="space-y-3">
+        {conversation.map((turn) => (
+          <div key={turn.id} className="space-y-3">
             {/* 用户问题：右对齐蓝色气泡 */}
             <div className="flex justify-end">
               <div className="max-w-[85%] rounded-[10px] rounded-br-sm bg-[#165dff] px-3.5 py-2.5">

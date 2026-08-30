@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import Header from "@/components/Header";
 import URLInput from "@/components/URLInput";
 import ProcessingStatus from "@/components/ProcessingStatus";
 import ResultPanel from "@/components/ResultPanel";
-import ChatPanel from "@/components/ChatPanel";
+import ChatPanel, { type Turn } from "@/components/ChatPanel";
 import FollowUpInput from "@/components/FollowUpInput";
 import Footer from "@/components/Footer";
 
@@ -27,6 +27,9 @@ interface ProcessResult {
   result: { overall: string; videoType?: string; segments: { title: string; start: number; end: number; points: { time: string; text: string }[] }[] };
 }
 
+// 追问条目的自增 id（模块级，用于按身份更新，避免按下标覆盖错条目）
+let turnIdSeq = 0;
+
 export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [progressStep, setProgressStep] = useState<ProgressStep>();
@@ -35,7 +38,7 @@ export default function Home() {
   const [result, setResult] = useState<ProcessResult | null>(null);
   const [streamingText, setStreamingText] = useState<string>("");
 
-  const [conversation, setConversation] = useState<{ question: string; answer: string }[]>([]);
+  const [conversation, setConversation] = useState<Turn[]>([]);
   const [followUpLoading, setFollowUpLoading] = useState(false);
 
   const handleSubmit = useCallback(async (url: string) => {
@@ -46,6 +49,8 @@ export default function Home() {
     setProgressStep("downloading");
     setProgressPercent(0);
     setConversation([]);
+    // 新视频开始时重置追问状态，避免残留的「正在输入…」
+    setFollowUpLoading(false);
 
     try {
       const response = await fetch("/api/process", {
@@ -117,18 +122,23 @@ export default function Home() {
     }
   }, []);
 
-  const handleFollowUp = useCallback(async (question: string) => {
-    if (!result) return;
-    setFollowUpLoading(true);
-    // 立即显示用户的问题（像微信发送消息），answer 先留空
-    setConversation((prev) => [...prev, { question, answer: "" }]);
+  // 当前在途追问的条目 id：只有它才能清除 loading，防止过期响应误清新追问的状态
+  const inFlightTurnRef = useRef<number | null>(null);
 
-    const updateLast = (answer: string) => {
-      setConversation((prev) => {
-        const next = [...prev];
-        next[next.length - 1] = { question, answer };
-        return next;
-      });
+  const handleFollowUp = useCallback(async (question: string) => {
+    // 已有追问进行中时忽略新请求（避免并发请求互相覆盖答案）
+    if (!result || followUpLoading) return;
+    setFollowUpLoading(true);
+    const turnId = ++turnIdSeq;
+    inFlightTurnRef.current = turnId;
+    // 立即显示用户的问题（像微信发送消息），answer 先留空
+    setConversation((prev) => [...prev, { id: turnId, question, answer: "" }]);
+
+    // 按条目 id 更新答案；若期间会话被清空（用户换了新视频），过期响应自然被丢弃
+    const updateTurn = (answer: string) => {
+      setConversation((prev) =>
+        prev.map((t) => (t.id === turnId ? { ...t, answer } : t))
+      );
     };
 
     try {
@@ -139,16 +149,19 @@ export default function Home() {
       });
       const data = await response.json();
       if (data.success) {
-        updateLast(data.answer);
+        updateTurn(data.answer);
       } else {
-        updateLast(data.error || "追问失败");
+        updateTurn(data.error || "追问失败");
       }
     } catch {
-      updateLast("网络请求失败，请稍后重试");
+      updateTurn("网络请求失败，请稍后重试");
     } finally {
-      setFollowUpLoading(false);
+      if (inFlightTurnRef.current === turnId) {
+        inFlightTurnRef.current = null;
+        setFollowUpLoading(false);
+      }
     }
-  }, [result]);
+  }, [result, followUpLoading]);
 
   return (
     <div className="flex min-h-screen flex-col">
