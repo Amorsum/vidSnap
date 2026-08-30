@@ -162,6 +162,7 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-08-30 | 收尾 | 清理 debug 代码 + 5 个逻辑 commit + push（UI重构/架构重构/yt-dlp修复/部署/docs） | - | ✅ 已完成 |
 | 2026-08-26 | 上线修复 | 封面加载失败兜底（🎬占位图）+ yt-dlp 加浏览器 UA 伪装（3处调用），缓解 YouTube 反爬识别 | ResultPanel.tsx, video-processor.ts | ✅ 已完成 |
 | 2026-08-26 | 部署 | 配置开机自启（autostart.bat + vbs 到 Windows 启动文件夹），解决 1033 反复（会话切换/重启被杀进程）问题 | autostart.bat, VidSnap-autostart.vbs | ✅ 已完成 |
 | 2026-08-22 | 架构重构 | 平台处理器模式（platforms.ts 统一接口 + route.ts 去 if/else 分平台）+ 抖音降级友好提示 | platforms.ts, route.ts, douyin-processor.ts | ✅ 已完成 |
