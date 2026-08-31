@@ -1,0 +1,19 @@
+{
+  "id": "python-venv-tutorial",
+  "title": "Python 虚拟环境入门：venv 的正确用法",
+  "uploader": "编程小课堂",
+  "duration": 160,
+  "transcript": "[00:00] 很多新手同学装了 Python 之后，直接把所有的包都装到全局环境里\n[00:08] 这样做的坏处是，两个项目的依赖版本会互相冲突\n[00:16] 解决方案就是虚拟环境，Python 自带的 venv 模块就能创建\n[00:25] 创建命令是 python -m venv 加上环境名，比如 venv\n[00:35] 创建完成后，目录里会有三个文件夹，bin、lib 和 include\n[00:45] Windows 上的激活命令是 venv\\Scripts\\activate，mac 和 Linux 是 source venv/bin/activate\n[00:58] 激活成功后，命令行前面会出现括号括起来的环境名\n[01:08] 之后再用 pip install，包装进的就是虚拟环境而不是全局\n[01:18] 查看当前装了哪些包，用 pip list 命令\n[01:26] 把项目依赖导出用 pip freeze，重定向到 requirements.txt 文件\n[01:38] 换一台机器部署的时候，pip install -r requirements.txt 就能还原环境\n[01:50] 退出虚拟环境用 deactivate 命令\n[01:58] 最后提醒一点，虚拟环境目录不要提交到 git 仓库，.gitignore 里加上它\n[02:12] 删除虚拟环境很简单，直接把整个目录删掉就行，重新创建只需要几秒钟\n[02:25] 掌握了 venv，你的每个项目就都有干净的依赖环境了",
+  "referencePoints": [
+    "全局安装包会导致两个项目的依赖版本互相冲突",
+    "虚拟环境用 Python 自带的 venv 模块创建",
+    "创建命令是 python -m venv 加环境名",
+    "创建后目录里有 bin、lib 和 include 三个文件夹",
+    "Windows 激活命令是 venv\\Scripts\\activate",
+    "激活成功后命令行前面会出现括号括起来的环境名",
+    "导出依赖用 pip freeze 重定向到 requirements.txt",
+    "还原环境用 pip install -r requirements.txt",
+    "退出虚拟环境用 deactivate 命令",
+    "虚拟环境目录不要提交到 git 仓库"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "id": "react-hooks-tutorial",
+  "title": "Getting Started with React Hooks",
+  "uploader": "DevMaster",
+  "duration": 200,
+  "transcript": "[00:00] Hey everyone, welcome back to the channel, today we are talking about React Hooks\n[00:10] Before Hooks, sharing stateful logic between components required render props or higher-order components\n[00:24] Hooks let you use state and lifecycle features without writing a class\n[00:36] The first hook you should know is useState, it returns a pair of the current value and a setter function\n[00:50] You can call the setter with a new value directly, or with a function that receives the previous value\n[01:04] The second hook is useEffect, it runs after the component renders\n[01:14] If you pass an empty dependency array, the effect only runs once after the first render\n[01:28] If you return a function from useEffect, React calls it during cleanup, which is great for removing event listeners\n[01:42] The third hook is useRef, the value is stored in a ref object and changing it does not trigger a re-render\n[01:56] useRef is often used to access DOM elements directly\n[02:08] Custom hooks are just functions that start with the word use, they can call other hooks inside\n[02:22] The most important rule is that hooks must be called at the top level, never inside loops or conditions\n[02:38] If you break this rule, React will throw an error about the order of hooks\n[02:50] There is also a lint plugin called eslint-plugin-react-hooks that catches most violations automatically\n[03:05] That is the overview, in the next video we will build a real project with these hooks\n[03:14] Thanks for watching, and see you in the next one",
+  "referencePoints": [
+    "Hooks 之前共享有状态逻辑需要 render props 或高阶组件",
+    "Hooks 允许不写 class 就使用 state 和生命周期特性",
+    "useState 返回当前值和 setter 函数",
+    "useEffect 在组件渲染之后运行",
+    "空依赖数组让 effect 只在首次渲染后运行一次",
+    "useEffect 返回的函数会在 cleanup 时调用",
+    "useRef 的值改变不会触发重新渲染",
+    "自定义 hook 是以 use 开头的函数",
+    "hooks 必须写在顶层，不能放在循环或条件里",
+    "eslint-plugin-react-hooks 能自动发现大部分违规"
+  ]
+}

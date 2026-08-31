@@ -27,6 +27,8 @@ export interface ProcessResult {
   info: VideoInfo;
   audioPath: string;
   subtitlePath: string | null;
+  /** 视频源文件路径（仅视觉理解启用时保留，供抽关键帧使用） */
+  videoPath?: string | null;
 }
 
 function ensureTempDir(): Promise<string> {
@@ -129,6 +131,34 @@ export async function downloadAudio(url: string, preInfo?: VideoInfo): Promise<P
     const { info, audioPath } = await extractAndDownloadDouyinAudio(url);
     return { info, audioPath, subtitlePath: null };
   }
+}
+
+/**
+ * 下载低分辨率视频流（仅用于关键帧提取，不参与转写）
+ * 格式链三层回退（240p → 144p），尽量降低下载体积与耗时
+ * 失败由调用方 catch 降级为音频-only，不阻塞主流程
+ */
+export async function downloadLowResVideo(url: string, preInfo?: VideoInfo): Promise<string> {
+  await ensureTempDir();
+  const info = preInfo ?? (await extractVideoInfo(url));
+  const outputTemplate = path.join(TEMP_DIR, `${info.id}-video.%(ext)s`);
+
+  await execFileAsync(YT_DLP_PATH, [
+    "-f", "best[height<=240]/bestvideo[height<=240]/best[height<=144]",
+    "--output", outputTemplate,
+    "--no-playlist",
+    ...(await getCommonYtDlpArgs()),
+    ...getCookieArgs(),
+    url,
+  ], { timeout: 120000 });
+
+  // yt-dlp 实际扩展名可能为 mp4/webm/mkv，按前缀探测实际文件
+  const files = await fs.readdir(TEMP_DIR);
+  const videoFile = files.find((f) => f.startsWith(`${info.id}-video.`));
+  if (!videoFile) {
+    throw new Error("视频流下载后未找到文件");
+  }
+  return path.join(TEMP_DIR, videoFile);
 }
 
 /**
@@ -296,7 +326,8 @@ function parseTimestamp(ts: string): number {
  */
 export async function cleanupTempFiles(videoId: string): Promise<void> {
   const files = await fs.readdir(TEMP_DIR);
-  const targetFiles = files.filter((f) => f.startsWith(videoId));
+  // 关键帧文件（-kf-）豁免立即清理：生命周期由 keyframes.ts 延迟清理管理
+  const targetFiles = files.filter((f) => f.startsWith(videoId) && !f.includes("-kf-"));
 
   await Promise.all(
     targetFiles.map((f) =>

@@ -4,6 +4,8 @@ export interface Turn {
   id: number;
   question: string;
   answer: string;
+  /** Agent 工具调用轨迹（追问 Agent 化后由服务端返回） */
+  toolsUsed?: string[];
 }
 
 interface ChatPanelProps {
@@ -57,6 +59,11 @@ const TurnItem = memo(function TurnItem({ turn }: TurnItemProps) {
       {turn.answer && (
         <div className="flex justify-start">
           <div className="max-w-[90%] rounded-[10px] rounded-bl-sm bg-[#f2f3f5] px-3.5 py-2.5">
+            {turn.toolsUsed && turn.toolsUsed.length > 0 && (
+              <p className="mb-1 font-mono text-[10px] text-[#86909c]">
+                🔧 {turn.toolsUsed.join(" → ")}
+              </p>
+            )}
             <p className="text-sm leading-relaxed text-[#1d2129]">{renderAnswer(turn.answer)}</p>
           </div>
         </div>

@@ -1,14 +1,14 @@
 /**
  * VidSnap 总结质量评测（A3）
- * 用法：npx tsx scripts/eval/summarize-eval.ts
+ * 用法：npx tsx scripts/eval/summarize-eval.ts [--only id1,id2]
  *
  * 评测「字幕 → 总结」这一步的 LLM 质量：
  *   1. 对每个 fixture 跑真实总结（复用 SUMMARIZE_SYSTEM_PROMPT + callLLMStreaming）
  *   2. LLM-as-judge 判定幻觉：总结里哪些要点在原文找不到依据
  *   3. LLM-as-judge 判定召回：人工标注的参考要点被覆盖了几个
- *   4. 汇总输出幻觉率 + 要点召回率
+ *   4. 汇总输出幻觉率 + 要点召回率，并归档 JSON 结果到 scripts/eval/results/
  */
-import { readFileSync, readdirSync } from "fs";
+import { readFileSync, readdirSync, writeFileSync, mkdirSync } from "fs";
 import path from "path";
 import { SUMMARIZE_SYSTEM_PROMPT } from "../../src/lib/prompts";
 import { callLLMStreaming, callLLMWithPrompt } from "../../src/lib/llm";
@@ -139,10 +139,34 @@ function loadFixtures(): Fixture[] {
   return files.map((f) => JSON.parse(readFileSync(path.join(dir, f), "utf-8")) as Fixture);
 }
 
+/** 解析 --only id1,id2 参数（子集冒烟用） */
+function parseOnlyIds(): string[] | null {
+  const idx = process.argv.indexOf("--only");
+  if (idx === -1 || !process.argv[idx + 1]) return null;
+  return process.argv[idx + 1].split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+/** judge 调用失败重试 1 次（避免中途崩溃烧掉已跑结果） */
+async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.log(`  [retry] ${label} 失败，重试一次:`, err instanceof Error ? err.message : err);
+    return fn();
+  }
+}
+
 // ─── 主流程 ───
 async function main(): Promise<void> {
   loadEnv();
-  const fixtures = loadFixtures();
+  const onlyIds = parseOnlyIds();
+  const allFixtures = loadFixtures();
+  const fixtures = onlyIds
+    ? allFixtures.filter((f) => onlyIds.includes(f.id))
+    : allFixtures;
+  if (onlyIds && fixtures.length !== onlyIds.length) {
+    console.log(`警告: --only 指定的 id 有 ${onlyIds.length - fixtures.length} 个未找到`);
+  }
   console.log(`=== VidSnap 总结质量评测 ===`);
   console.log(`fixtures: ${fixtures.length} 条\n`);
 
@@ -159,11 +183,17 @@ async function main(): Promise<void> {
     const points = extractPoints(summary);
     console.log(`  summary points: ${points.length}`);
 
-    const hallucinated = await judgeHallucination(fixture.transcript, points);
+    const hallucinated = await withRetry(
+      () => judgeHallucination(fixture.transcript, points),
+      `幻觉判定(${fixture.id})`
+    );
     console.log(`  hallucinated: ${hallucinated.length}`);
     for (const h of hallucinated) console.log(`    - ${h}`);
 
-    const { covered, missed } = await judgeRecall(points, fixture.referencePoints);
+    const { covered, missed } = await withRetry(
+      () => judgeRecall(points, fixture.referencePoints),
+      `召回判定(${fixture.id})`
+    );
     console.log(`  reference: ${fixture.referencePoints.length}, covered: ${covered.length}, missed: ${missed.length}`);
     for (const m of missed) console.log(`    MISS: ${m}`);
 
@@ -194,6 +224,27 @@ async function main(): Promise<void> {
   console.log(`总覆盖数: ${totalCovered}`);
   console.log(`\n幻觉率: ${hallucinationRate.toFixed(1)}% (越低越好)`);
   console.log(`要点召回率: ${recall.toFixed(1)}% (越高越好)`);
+
+  // 结果归档：作为评测证据提交入库
+  const archive = {
+    evaluatedAt: new Date().toISOString(),
+    fixtureCount: fixtures.length,
+    totals: {
+      points: totalPoints,
+      hallucinated: totalHallucinated,
+      reference: totalRef,
+      covered: totalCovered,
+      hallucinationRate: +hallucinationRate.toFixed(1),
+      recall: +recall.toFixed(1),
+    },
+    perFixture,
+  };
+  const resultsDir = path.join(process.cwd(), "scripts/eval/results");
+  mkdirSync(resultsDir, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
+  const archivePath = path.join(resultsDir, `eval-${timestamp}.json`);
+  writeFileSync(archivePath, JSON.stringify(archive, null, 2), "utf-8");
+  console.log(`\n结果已归档: ${archivePath}`);
 }
 
 main().catch((err) => {

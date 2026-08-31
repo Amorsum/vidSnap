@@ -25,3 +25,8 @@ export function getConversation(videoId: string, limit = 3): ConversationTurn[] 
   const turns = store.get(videoId) || [];
   return turns.slice(-limit);
 }
+
+/** 清空某视频的对话历史（DELETE /api/process 清理时同步） */
+export function clearConversation(videoId: string): void {
+  store.delete(videoId);
+}

@@ -5,7 +5,7 @@
 import { detectPlatform, UNSUPPORTED_PLATFORM_MESSAGE } from "./url-utils";
 import type { Platform } from "./url-utils";
 import type { VideoInfo, ProcessResult } from "./video-processor";
-import { extractVideoInfo, downloadAudio, tryDownloadSubtitles } from "./video-processor";
+import { extractVideoInfo, downloadAudio, downloadLowResVideo, tryDownloadSubtitles } from "./video-processor";
 
 // 与 ProcessResult 字段一致（info + 音频路径 + 可选字幕路径）
 export type DownloadResult = ProcessResult;
@@ -15,6 +15,8 @@ export interface PlatformProcessor {
   getInfo(url: string): Promise<VideoInfo>;
   /** 下载字幕/音频（info 为 getInfo 的结果，避免重复解析） */
   download(url: string, info: VideoInfo): Promise<DownloadResult>;
+  /** 下载低分辨率视频流（仅关键帧视觉理解阶段按需调用），失败抛错由调用方降级 */
+  downloadVideo?(url: string, info: VideoInfo): Promise<string>;
   /** 转写策略：短视频（<180s）是否使用 tiny 模型（抖音短视频专用） */
   useTinyForShortVideos?: boolean;
 }
@@ -33,6 +35,7 @@ const youtubeProcessor: PlatformProcessor = {
     const result = await downloadAudio(url, info);
     return { info: result.info, audioPath: result.audioPath, subtitlePath: null };
   },
+  downloadVideo: (url, info) => downloadLowResVideo(url, info),
 };
 
 // ─── 抖音：Playwright 提取信息 + ffmpeg 下载 ───
@@ -49,7 +52,7 @@ const douyinProcessor: PlatformProcessor = {
     return info;
   },
   download: async (url, info) => {
-    const { extractDouyinInfo, downloadDouyinAudio } = await import("./douyin-processor");
+    const { extractDouyinInfo, downloadDouyinVideoAndAudio } = await import("./douyin-processor");
     let videoUrl = douyinVideoUrlMemo.get(url);
     douyinVideoUrlMemo.delete(url);
     if (!videoUrl) {
@@ -57,8 +60,10 @@ const douyinProcessor: PlatformProcessor = {
       const extracted = await extractDouyinInfo(url);
       videoUrl = extracted.videoUrl;
     }
-    const audioPath = await downloadDouyinAudio(videoUrl, info.id);
-    return { info, audioPath, subtitlePath: null };
+    // 视觉理解启用时保留 mp4（供抽关键帧），否则沿用「用完即删」
+    const { isVisionEnabled } = await import("./vision");
+    const { audioPath, videoPath } = await downloadDouyinVideoAndAudio(videoUrl, info.id, isVisionEnabled());
+    return { info, audioPath, subtitlePath: null, videoPath };
   },
 };
 

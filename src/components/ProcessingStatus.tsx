@@ -1,5 +1,5 @@
 /** 处理阶段（与 SSE progress 事件的 step 一致） */
-export type ProgressStep = "downloading" | "transcribing" | "analyzing" | "done" | "error";
+export type ProgressStep = "downloading" | "transcribing" | "vision" | "analyzing" | "done" | "error";
 
 interface ProcessingStatusProps {
   isLoading: boolean;
@@ -11,12 +11,14 @@ interface ProcessingStatusProps {
 const steps = [
   { key: "downloading", shortLabel: "下载音频" },
   { key: "transcribing", shortLabel: "语音转写" },
+  { key: "vision", shortLabel: "视觉理解" },
   { key: "analyzing", shortLabel: "AI 总结" },
 ] as const;
 
 const stepLabels: Partial<Record<ProgressStep, string>> = {
   downloading: "正在下载视频音频...",
   transcribing: "正在识别语音字幕...",
+  vision: "正在分析关键帧画面...",
   analyzing: "AI 正在理解视频内容...",
   done: "处理完成",
 };

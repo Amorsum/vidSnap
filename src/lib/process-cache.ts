@@ -9,6 +9,7 @@
  */
 import type { TranscriptSegment } from "./transcriber";
 import type { VideoInfo } from "./video-processor";
+import type { FrameInfo } from "./vision";
 
 interface CachedProcessResult {
   video: VideoInfo;
@@ -17,6 +18,8 @@ interface CachedProcessResult {
   transcriptSegments: TranscriptSegment[];
   transcriptEmbeddings?: number[][];
   result: Record<string, unknown>;
+  /** 关键帧元数据（仅文本，不缓存图片二进制；帧文件 TTL 2h > 缓存 TTL 1h，命中时图片仍可访问） */
+  frames?: FrameInfo[];
   savedAt: number;
 }
 
@@ -45,4 +48,9 @@ export function getCachedResult(videoId: string): CachedProcessResult | null {
     return null;
   }
   return record;
+}
+
+/** 主动失效（DELETE /api/process 清理时同步清缓存，避免返回悬空帧引用） */
+export function invalidateCache(videoId: string): void {
+  cache.delete(videoId);
 }

@@ -1,7 +1,8 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useRef, useState } from "react";
 import type { VideoInfo } from "@/lib/video-processor";
+import KeyframeGallery, { type FrameInfo } from "./KeyframeGallery";
 
 /** AI 总结结果结构（与 SSE result 载荷一致） */
 export interface SummaryResult {
@@ -14,6 +15,7 @@ interface ResultPanelProps {
   video: VideoInfo;
   result: SummaryResult;
   transcriptSource: "builtin" | "whisper";
+  frames?: FrameInfo[];
 }
 
 function formatDuration(seconds: number): string {
@@ -25,8 +27,33 @@ function formatDuration(seconds: number): string {
 }
 
 // memo：追问状态变化会触发父组件重渲染，结果区内容不变时跳过整棵 segments 树
-export default memo(function ResultPanel({ video, result, transcriptSource }: ResultPanelProps) {
+export default memo(function ResultPanel({ video, result, transcriptSource, frames }: ResultPanelProps) {
   const [imgError, setImgError] = useState(false);
+  // 时间跳转：滚动定位到对应分段并短暂高亮（关键帧点击 / 时间戳胶囊点击共用）
+  const segmentRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const [highlightIdx, setHighlightIdx] = useState<number | null>(null);
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleJump = (t: number) => {
+    // 优先找覆盖该时刻的分段，否则取最后一个起点在 t 之前的分段
+    let idx = result.segments.findIndex((seg) => seg.start <= t && t <= seg.end);
+    if (idx < 0) {
+      idx = -1;
+      for (let i = result.segments.length - 1; i >= 0; i--) {
+        if (result.segments[i].start <= t) { idx = i; break; }
+      }
+    }
+    if (idx < 0) return;
+    segmentRefs.current[idx]?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightIdx(idx);
+    if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    highlightTimer.current = setTimeout(() => setHighlightIdx(null), 2000);
+  };
+
+  const parseTimeToSec = (time: string): number => {
+    const [m, s] = time.split(":").map(Number);
+    return (m || 0) * 60 + (s || 0);
+  };
 
   return (
     <div className="w-full space-y-5">
@@ -76,6 +103,9 @@ export default memo(function ResultPanel({ video, result, transcriptSource }: Re
           <p className="mt-1 text-sm text-[#1d2129]">{result.overall}</p>
         </div>
 
+        {/* 关键帧画廊：视觉理解结果，点击跳转到对应时间轴分段 */}
+        <KeyframeGallery frames={frames} onJumpToTime={handleJump} />
+
         {/* 时间轴分段 */}
         {result.segments && result.segments.length > 0 && (
           <div>
@@ -91,7 +121,12 @@ export default memo(function ResultPanel({ video, result, transcriptSource }: Re
                     )}
                   </div>
                   {/* 片段内容 */}
-                  <div className="flex-1 rounded-lg border border-[#e5e6eb] bg-white p-4 transition-shadow hover:shadow-sm">
+                  <div
+                    ref={(el) => { segmentRefs.current[i] = el; }}
+                    className={`flex-1 rounded-lg border bg-white p-4 transition-shadow hover:shadow-sm ${
+                      highlightIdx === i ? "border-[#165dff] ring-2 ring-[#165dff]/40" : "border-[#e5e6eb]"
+                    }`}
+                  >
                     <div className="mb-2 flex items-center justify-between">
                       <h4 className="text-sm font-semibold text-[#1d2129]">{seg.title}</h4>
                       <span className="text-xs text-[#86909c]">
@@ -101,7 +136,10 @@ export default memo(function ResultPanel({ video, result, transcriptSource }: Re
                     <ul className="space-y-1.5">
                       {seg.points.map((point, j) => (
                         <li key={j} className="flex items-start gap-2 text-sm text-[#4e5969]">
-                          <button className="mt-0.5 flex-shrink-0 cursor-pointer rounded-md bg-[#e8f3ff] px-1.5 py-0.5 font-mono text-[10px] text-[#165dff] transition-colors hover:bg-[#165dff] hover:text-white">
+                          <button
+                            onClick={() => handleJump(parseTimeToSec(point.time))}
+                            className="mt-0.5 flex-shrink-0 cursor-pointer rounded-md bg-[#e8f3ff] px-1.5 py-0.5 font-mono text-[10px] text-[#165dff] transition-colors hover:bg-[#165dff] hover:text-white"
+                          >
                             {point.time}
                           </button>
                           <span>{point.text}</span>

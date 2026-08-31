@@ -65,3 +65,5 @@ cloudflared-config.yml
 
 # Cloudflare 隧道客户端二进制（约 54MB，自行下载，见 README 部署章节）
 cloudflared.exe
+vidsnap-server.log
+vidsnap-tunnel.log

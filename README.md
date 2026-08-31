@@ -2,7 +2,7 @@
 
 > **一句话**：丢给它一个 YouTube / 抖音链接，AI 替你看完，然后你可以问任何问题。
 
-独立从 0 到 1 构建的 AI 视频理解应用，打通「链接解析 → 音视频下载 → 三级降级转写 → LLM 结构化总结 → 向量 RAG 追问」全链路。
+独立从 0 到 1 构建的 AI 视频理解应用，打通「链接解析 → 音视频下载 → 三级降级转写 → 关键帧视觉理解 → LLM 结构化总结 → Agentic RAG 追问」全链路，支持 YouTube / 抖音双平台。
 
 ## 演示
 
@@ -21,7 +21,8 @@
 | 功能 | 说明 |
 |------|------|
 | 一键视频总结 | 粘贴链接 → 自动下载 → 转写 → 输出结构化摘要（一句话总结 + 分段要点 + 时间戳） |
-| 追问对话（RAG） | 基于视频原文提问，向量检索相关片段，回答可溯源到秒级时间戳 |
+| 关键帧视觉理解（多模态） | FFmpeg 均匀采样抽帧 → Qwen3-VL 视觉模型逐帧描述 → 与字幕按时间戳融合进总结，关键帧画廊可点击跳转分段 |
+| 追问对话（Agentic RAG） | 模型自主决策检索策略（语义/关键词/时间范围三工具 tool-calling），回答可溯源到秒级时间戳，前端可见工具调用轨迹 |
 | 跨语言理解 | 英/日/韩等外语视频自动输出中文总结 |
 | 双平台 | YouTube（yt-dlp + 字幕优先）+ 抖音（Playwright 解析 + ffmpeg 下载） |
 
@@ -42,11 +43,12 @@ flowchart TD
     I -->|是| K
     I -->|否| J[三级降级转写<br/>SenseVoice 云端 →<br/>faster-whisper 本地常驻]
     H --> J
-    J --> K[LLM 结构化总结<br/>JSON mode + SSE 流式<br/>+ 15s 心跳保活]
+    J --> V[关键帧视觉理解<br/>FFmpeg 抽帧 → Qwen3-VL<br/>失败降级音频-only]
+    V --> K[LLM 结构化总结<br/>字幕 + 画面融合<br/>JSON mode + SSE 流式]
     K --> L[分段 embedding 入库<br/>bge-m3 向量化]
-    L --> P[返回结果<br/>要点强制绑定时间戳]
-    P --> Q[追问：三级降级检索<br/>向量 → 关键词 2-gram → 全文]
-    Q --> R[LLM 结合原文回答<br/>多轮上下文]
+    L --> P[返回结果<br/>要点强制绑定时间戳<br/>+ 关键帧画廊]
+    P --> Q[追问：Agentic tool-calling<br/>模型自主选择检索工具]
+    Q --> R[LLM 结合原文回答<br/>多轮上下文 + 工具轨迹可见]
 ```
 
 ## AI 工程亮点
@@ -54,24 +56,27 @@ flowchart TD
 > 本项目的核心不是"能跑"，而是「把 LLM 从能跑做成可信、可控、可评估、可观测」。以下每一点都可以在面试中展开。
 
 1. **三级降级转写**（成本/延迟/可用性权衡）：视频自带字幕 → 硅基流动 SenseVoice 云端 API → 本地 faster-whisper 常驻服务器。Whisper 常驻进程 + stdin/stdout 多行 JSON 协议，消除每次 2-5s 模型冷启动；短视频自动切 tiny 模型提速
-2. **向量 RAG 追问**：字幕分段用 bge-m3 向量化（4000 字符截断 + 32 条分批防超长 500），余弦相似度 top-k 检索；embedding 失败自动降级中文 2-gram 关键词检索，再降级全文兜底；回答可溯源到秒级时间戳
-3. **结构化输出**：JSON mode（`response_format: json_object`）替代手写 JSON 补丁解析，删掉 60 行脆弱代码，保证 schema 可靠
-4. **评测体系（Eval）**：LLM-as-judge 量化总结质量——要点级幻觉率 0%、参考要点召回率 100%（2 条评测集，持续扩充）；评测脚本复用生产 prompt，零漂移
-5. **成本可观测**：全链路 token 用量 + 成本埋点（区分缓存命中/未命中单价），单视频成本可量化到分——实测 **¥0.0064 / 1769 tokens / 25.7s**
-6. **LLM Provider 抽象层**：DeepSeek（默认）/ Claude 一键切换（两套 API 格式归一），SSE 流式输出 + 15s 心跳解决 Cloudflare 隧道 100s 超时断连
-7. **防幻觉设计**：每个要点强制绑定时间戳与原文依据，摘要结论可验证
-8. **平台处理器模式**：统一 `getInfo/download` 接口，主流程零 if/else 分平台，扩展新平台只需注册一个处理器
+2. **多模态关键帧视觉理解**：FFmpeg 均匀采样抽帧（确定性时间戳）→ 硅基流动 Qwen3-VL 批量画面描述 → 与字幕按时间戳融合进总结（画面与字幕冲突时以画面为准，±5s 容差语义对齐）；视觉链路任何失败静默降级音频-only；关键帧画廊 + HMAC 签名帧图服务 + 2h 生命周期管理
+3. **Agentic 追问（tool-calling）**：检索策略从固定管线升级为模型自主决策——语义检索/关键词检索/时间范围三工具，DeepSeek function calling 与 Claude tool_use 双协议归一；轮数上限 + 重复调用终止 + 无工具终轮三重防死循环；前端可见工具调用轨迹
+4. **向量 RAG**：字幕分段 bge-m3 向量化（4000 字符截断 + 32 条分批防超长 500），余弦相似度 top-k；回答可溯源到秒级时间戳
+5. **结构化输出**：JSON mode（`response_format: json_object`）替代手写 JSON 补丁解析，删掉 60 行脆弱代码，保证 schema 可靠
+6. **评测体系（Eval）**：LLM-as-judge 量化总结质量——要点级幻觉率 0.0%、参考要点召回率 99.1%（12 条评测集：教程/评测/新闻/访谈/演讲 × 中/英/日多语言，含 1 条真实 YouTube 视频）；评测脚本复用生产 prompt，零漂移，结果 JSON 归档可追溯
+7. **成本可观测**：全链路 token 用量 + 成本埋点（区分缓存命中/未命中单价、视觉模型独立计价），单视频成本可量化到分——实测 **¥0.0064 / 1769 tokens / 25.7s**（不含视觉：视觉单次 902 tokens ≈ ¥0.0017）
+8. **LLM Provider 抽象层**：DeepSeek（默认）/ Claude 一键切换（两套 API 格式归一），SSE 流式输出 + 15s 心跳解决 Cloudflare 隧道 100s 超时断连
+9. **防幻觉设计**：每个要点强制绑定时间戳与原文依据，摘要结论可验证
+10. **平台处理器模式**：统一 `getInfo/download` 接口，主流程零 if/else 分平台，扩展新平台只需注册一个处理器
 
 ## 质量与成本数据
 
 ### 总结质量评测（LLM-as-judge）
 
-运行：`npx tsx scripts/eval/summarize-eval.ts`
+运行：`npx tsx scripts/eval/summarize-eval.ts`（`--only <id>` 跑子集；结果归档 `scripts/eval/results/`）
 
 | 指标 | 结果 |
 |------|------|
-| 要点级幻觉率 | 0% |
-| 参考要点召回率 | 100% |
+| 评测集规模 | 12 条（教程/评测/新闻/访谈/演讲 × 中/英/日，含 1 条真实 YouTube 视频） |
+| 要点级幻觉率 | 0.0%（139 个要点，0 幻觉） |
+| 参考要点召回率 | 99.1%（106 个参考要点覆盖 105 个） |
 
 ### 单视频实测成本（DeepSeek）
 
@@ -102,7 +107,8 @@ flowchart TD
 - **前端**：Next.js 16 + React 19 + TypeScript + Tailwind CSS v4
 - **视频处理**：yt-dlp（YouTube）、Playwright + ffmpeg（抖音，绕过 X-Bogus 签名）
 - **ASR 转写**：硅基流动 SenseVoice API（云端）/ faster-whisper（本地降级，CUDA 加速）
-- **AI 引擎**：DeepSeek API（默认）/ Claude API（可切换），SSE 流式输出
+- **视觉理解**：FFmpeg 关键帧抽取 + 硅基流动 Qwen3-VL-32B（OpenAI 兼容接口，批量多图描述）
+- **AI 引擎**：DeepSeek API（默认）/ Claude API（可切换），SSE 流式输出，tool-calling 双协议归一
 - **向量检索**：硅基流动 bge-m3 embedding + 余弦相似度检索
 - **部署**：本地生产模式 + Cloudflare Tunnel（`vidsnap.amorsum.top`）
 
@@ -114,8 +120,9 @@ npm install
 
 # 配置环境变量（复制 .env.example 为 .env.local 并填入 Key）
 # DEEPSEEK_API_KEY=sk-xxx       # 必填，LLM 总结
-# SENSEVOICE_API_KEY=sk-xxx     # 可选，云端转写 + embedding
+# SENSEVOICE_API_KEY=sk-xxx     # 可选，云端转写 + embedding + 关键帧视觉理解（一 key 三用）
 # ACCESS_CODE=your-code         # 可选，访问码门禁
+# VISION_ENABLED=0              # 可选，显式关闭视觉理解（默认有 key 即启用）
 
 # 本地启动
 npm run dev
@@ -150,15 +157,18 @@ npm run dev
 │   ├── app/
 │   │   ├── page.tsx             # 产品首页
 │   │   └── api/
-│   │       ├── process/         # 视频处理管线（SSE 流式）
-│   │       ├── followup/        # RAG 追问
+│   │       ├── process/         # 视频处理管线（SSE 流式 + 视觉理解阶段）
+│   │       ├── followup/        # Agentic 追问（tool-calling）
+│   │       ├── frames/          # 关键帧图片服务（HMAC 签名鉴权）
 │   │       └── verify/          # 访问码校验
-│   ├── components/              # UI 组件
+│   ├── components/              # UI 组件（含 KeyframeGallery 关键帧画廊）
 │   └── lib/
-│       ├── llm.ts               # LLM Provider 抽象（DeepSeek/Claude）
+│       ├── llm.ts               # LLM Provider 抽象 + tool-calling 循环
+│       ├── vision.ts            # Qwen3-VL 视觉理解 + 帧图签名
+│       ├── keyframes.ts         # FFmpeg 抽帧 + 帧文件生命周期
 │       ├── rag.ts               # 向量/关键词检索
 │       ├── embeddings.ts        # bge-m3 embedding 封装
-│       ├── observability.ts     # token 用量 + 成本核算
+│       ├── observability.ts     # token 用量 + 成本核算（含视觉计价）
 │       ├── security.ts          # 访问码 + 滑动窗口限流
 │       ├── platforms.ts         # 平台处理器注册
 │       ├── transcriber.ts       # 转写调度（三级降级）
@@ -174,7 +184,7 @@ npm run dev
     ├── whisper_server.py        # Whisper 常驻服务器（消冷启动）
     ├── whisper_asr.py           # Whisper 降级脚本
     ├── douyin_playwright.py     # 抖音 Playwright 解析
-    └── eval/                    # 总结质量评测（LLM-as-judge）
+    └── eval/                    # 总结质量评测（LLM-as-judge，fixtures + results 归档）
 ```
 
 ## 路线图
@@ -182,7 +192,7 @@ npm run dev
 - [x] 核心链路 + 双平台 + RAG 追问
 - [x] 结构化输出 + 评测集 + 成本可观测
 - [x] 鉴权限流 + 自动化测试体系（30/30）
-- [ ] 关键帧视觉理解（音视频多模态）
-- [ ] 追问 Agent 化（tool-calling 自主决策）
+- [x] 关键帧视觉理解（音视频多模态，Qwen3-VL + 关键帧画廊）
+- [x] 追问 Agent 化（tool-calling 自主决策检索策略）
 - [ ] 异步任务队列 + 持久化向量库
 - [ ] 云端容器化部署（24/7 在线）

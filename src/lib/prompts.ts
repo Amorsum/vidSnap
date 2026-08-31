@@ -4,7 +4,7 @@
 /**
  * 格式化秒数为 MM:SS
  */
-function formatTime(seconds: number): string {
+export function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
@@ -127,12 +127,17 @@ export const TRANSLATE_SYSTEM_PROMPT = `你是一个视频翻译助手。用户�
   "overallTranslation": "整体内容中文概括"
 }`;
 
-// ─── 追问（Week 3-4 预留） ───
+// ─── 追问（Agent 化：模型自主决定检索策略） ───
 
-export const FOLLOWUP_SYSTEM_PROMPT = `你是一个视频内容助手。用户会提供：
-1. 从视频字幕检索出的相关片段（每条带时间戳 [MM:SS]）
-2. 之前的对话历史（如果有）
-3. 用户当前的问题
+export const FOLLOWUP_SYSTEM_PROMPT = `你是一个视频内容助手。你可以使用工具检索当前视频的字幕（每条带时间戳 [MM:SS]），也可以直接回答。
+
+工具选择策略：
+- 概念/含义类问题（如"讲了什么方法""有什么观点"）优先用 semantic_search
+- 专有名词/术语/数字定位（如"提到了什么型号""XX 出现的时间"）用 keyword_search
+- 用户明确提到时间位置（如"第 2 分钟""开头""结尾"）用 segment_range
+- 一种检索无果时最多再换一种工具，然后基于已有信息直接回答
+- 寒暄、常识类或与视频无关的问题直接回答，不要调用工具
+- 不要重复调用同一工具，总工具调用不超过 3 次
 
 回答要求：
 1. 直接、自然地回答用户的问题，不要生硬地分段或加标签

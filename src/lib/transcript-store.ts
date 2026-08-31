@@ -56,3 +56,8 @@ export function getTranscript(videoId: string): StoredTranscript | null {
   }
   return record;
 }
+
+/** 主动移除（DELETE /api/process 清理时同步失效，避免追问残留旧数据） */
+export function removeTranscript(videoId: string): void {
+  store.delete(videoId);
+}

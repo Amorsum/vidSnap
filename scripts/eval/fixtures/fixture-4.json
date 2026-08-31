@@ -1,0 +1,18 @@
+{
+  "id": "docker-deploy-tutorial",
+  "title": "用 Docker 部署 Node.js 应用全流程",
+  "uploader": "后端老周",
+  "duration": 185,
+  "transcript": "[00:00] 大家好，我是老周，今天带大家把 Node.js 应用用 Docker 部署起来\n[00:10] 第一步，先在项目根目录创建一个 Dockerfile，注意 D 大写，没有扩展名\n[00:22] 基础镜像我们选择 node:20-alpine，为什么选 alpine，因为它体积小，只有五十兆左右\n[00:38] 然后是 COPY 指令，把 package.json 和锁文件先复制进去，先跑 npm ci\n[00:52] 这样做的目的是利用 Docker 的层缓存，依赖没变的时候就不用重新下载\n[01:05] 接着把源码复制进去，执行 npm run build 生成生产产物\n[01:18] 运行命令用 CMD 而不是 RUN，CMD 是容器启动时的默认命令\n[01:30] 暴露端口用 EXPOSE 3000，这只是一个文档性质的声明，并不会真正开放端口\n[01:44] 构建镜像用 docker build -t 加个标签，比如 my-app:1.0\n[01:56] 运行容器的时候，用 -p 参数把宿主机的 8080 映射到容器内的 3000\n[02:08] 生产环境记得加 --restart unless-stopped，容器意外退出会自动重启\n[02:22] 日志可以用 docker logs 查看，加 -f 参数实时跟踪\n[02:34] 镜像推送到仓库用 docker push，先 docker tag 改成仓库地址再推\n[02:48] 最后说一下多阶段构建，build 阶段装依赖编译，运行阶段只放产物，镜像能小一大半\n[03:02] 好了，按这个流程走下来，你的应用就稳定跑在容器里了",
+  "referencePoints": [
+    "Dockerfile 的 D 要大写且没有扩展名",
+    "基础镜像选择 node:20-alpine 因为体积小只有五十兆左右",
+    "先复制 package.json 再跑 npm ci 是为了利用层缓存",
+    "CMD 是容器启动时的默认命令",
+    "EXPOSE 只是文档性质声明不会真正开放端口",
+    "构建镜像命令是 docker build -t",
+    "-p 参数把宿主机 8080 映射到容器 3000",
+    "生产环境建议加 --restart unless-stopped",
+    "多阶段构建可以让镜像小一大半"
+  ]
+}

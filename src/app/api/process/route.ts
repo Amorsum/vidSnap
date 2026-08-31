@@ -8,10 +8,16 @@ import { callLLMStreaming } from "@/lib/llm";
 import type { TokenUsage } from "@/lib/llm";
 import { calcCost } from "@/lib/observability";
 import { SUMMARIZE_SYSTEM_PROMPT, formatTranscriptForPrompt } from "@/lib/prompts";
-import { saveTranscript } from "@/lib/transcript-store";
 import { tryEmbedSegments } from "@/lib/embeddings";
-import { getCachedResult, cacheResult } from "@/lib/process-cache";
+import { getCachedResult, cacheResult, invalidateCache } from "@/lib/process-cache";
+import { saveTranscript, removeTranscript } from "@/lib/transcript-store";
+import { clearConversation } from "@/lib/conversation-store";
 import { verifyAccessCode, getClientIp, checkRateLimit } from "@/lib/security";
+import { extractKeyframes, scheduleFramesCleanup, sweepExpiredFrames, cleanupFrameFiles } from "@/lib/keyframes";
+import {
+  isVisionEnabled, describeFrames, formatFramePrompt, signFrameToken,
+  type FrameDescription, type FrameInfo,
+} from "@/lib/vision";
 import { existsSync } from "fs";
 
 function sseEvent(data: unknown): string {
@@ -19,20 +25,22 @@ function sseEvent(data: unknown): string {
 }
 
 // ─── 进度区间映射 ───
-// 0-25%: 下载
-// 25-70%: 转写（Whisper 上报 0-100 → 映射到 25-70）
-// 70-95%: AI 总结（LLM 流式 token 估算 → 映射到 70-95）
+// 0-20%: 下载
+// 20-60%: 转写（Whisper 上报 0-100 → 映射到 20-60）
+// 60-75%: 视觉理解（关键帧抽取 + 视觉模型描述，失败静默跳过）
+// 75-95%: AI 总结（LLM 流式 token 估算 → 映射到 75-95）
 // 95-100%: 收尾
 
 function progress(step: string, percent: number) {
   return { type: "progress", step, percent };
 }
 
-function mapPhaseProgress(phase: "downloading" | "transcribing" | "analyzing", subPercent: number): number {
+function mapPhaseProgress(phase: "downloading" | "transcribing" | "vision" | "analyzing", subPercent: number): number {
   switch (phase) {
-    case "downloading": return Math.round(5 + (subPercent / 100) * 20);      // 5-25%
-    case "transcribing": return Math.round(25 + (subPercent / 100) * 45);    // 25-70%
-    case "analyzing":    return Math.round(70 + (subPercent / 100) * 25);    // 70-95%
+    case "downloading": return Math.round(5 + (subPercent / 100) * 15);      // 5-20%
+    case "transcribing": return Math.round(20 + (subPercent / 100) * 40);    // 20-60%
+    case "vision":       return Math.round(60 + (subPercent / 100) * 15);    // 60-75%
+    case "analyzing":    return Math.round(75 + (subPercent / 100) * 20);    // 75-95%
     default: return 0;
   }
 }
@@ -81,25 +89,80 @@ async function getTranscriptSmart(
   });
 }
 
+// ─── 辅助：视觉理解阶段（抽关键帧 → 视觉模型描述，失败降级音频-only） ───
+
+async function doVisionPhase(
+  url: string,
+  info: VideoInfo,
+  downloadResult: ProcessResult,
+  processor: ReturnType<typeof getProcessor>,
+  send: (data: unknown) => void,
+): Promise<{
+  descriptions: FrameDescription[];
+  frameInfos: FrameInfo[];
+  usage: TokenUsage | null;
+} | null> {
+  if (!isVisionEnabled() || !info.duration) return null;
+
+  send(progress("vision", mapPhaseProgress("vision", 0)));
+  try {
+    // 抖音在 download 阶段已保留 mp4；YouTube 按需下载低清流
+    let videoPath = downloadResult.videoPath ?? null;
+    if (!videoPath) {
+      if (!processor.downloadVideo) return null;
+      videoPath = await processor.downloadVideo(url, info);
+    }
+
+    const frames = await extractKeyframes(videoPath, info.id, info.duration);
+    await sweepExpiredFrames();
+    send(progress("vision", mapPhaseProgress("vision", 60)));
+
+    const vision = await describeFrames(frames, info.title);
+    if (!vision) return null;
+
+    const frameInfos: FrameInfo[] = await Promise.all(
+      vision.descriptions.map(async (d, i) => ({
+        time: d.time,
+        description: d.description,
+        src: `/api/frames?videoId=${info.id}&idx=${i + 1}&token=${await signFrameToken(info.id, i + 1)}`,
+      }))
+    );
+
+    scheduleFramesCleanup(info.id);
+    send(progress("vision", mapPhaseProgress("vision", 100)));
+    return { descriptions: vision.descriptions, frameInfos, usage: vision.usage };
+  } catch (err) {
+    console.log("[vision] 视觉阶段失败，降级为音频-only:", err);
+    return null;
+  }
+}
+
 // ─── 辅助：AI 总结 + 缓存 ───
 
 async function doAISummarize(
   info: VideoInfo,
   transcript: TranscriptResult,
   send: (data: unknown) => void,
+  vision?: { descriptions: FrameDescription[]; frameInfos: FrameInfo[] },
 ): Promise<{ result: Record<string, unknown>; usage: TokenUsage | null; latencyMs: number }> {
   const summarizeStart = Date.now();
   send({ type: "stream_start" });
 
   const transcriptText = formatTranscriptForPrompt(transcript.segments);
   const durationMin = Math.round(info.duration / 60);
+  const visionBlock = vision
+    ? `以下是从视频画面抽取的关键帧视觉描述（画面可与字幕互补；字幕与画面冲突时以画面为准；画面时间戳与字幕可能有 ±5 秒偏差，请按语义就近对齐；画面补充的要点同样绑定对应画面时间戳）：
+
+${formatFramePrompt(vision.descriptions)}`
+    : null;
+
   const userMessage = `视频标题：${info.title}
 视频时长：${info.duration}秒（约${durationMin}分钟）
 上传者：${info.uploader}
 
 以下是视频字幕（带时间戳）：
 
-${transcriptText}`;
+${transcriptText}${visionBlock ? `\n\n${visionBlock}` : ""}`;
 
   let fullText = "";
   let usage: TokenUsage | null = null;
@@ -140,6 +203,7 @@ ${transcriptText}`;
     transcriptSegments: transcript.segments,
     transcriptEmbeddings,
     result: aiResult,
+    frames: vision?.frameInfos,
   });
 
   return { result: aiResult, usage, latencyMs };
@@ -181,14 +245,29 @@ export async function POST(request: NextRequest) {
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
+        // 客户端断开后 controller 已关闭，后续写入会抛「Invalid state」——守卫防 uncaughtException
         const send = (data: unknown) => {
-          controller.enqueue(encoder.encode(sseEvent(data)));
+          try {
+            controller.enqueue(encoder.encode(sseEvent(data)));
+          } catch {
+            // 客户端已断开，忽略后续写入
+          }
         };
 
         // 心跳机制：防止 Cloudflare 隧道 / 代理超时断开 SSE 连接
         const heartbeatInterval = setInterval(() => {
           send({ type: "heartbeat" });
         }, 15000);
+
+        // 客户端断开（请求 abort）时立即关闭流，释放 SSE 资源
+        request.signal.addEventListener("abort", () => {
+          clearInterval(heartbeatInterval);
+          try {
+            controller.close();
+          } catch {
+            // 已关闭则忽略
+          }
+        });
 
         // info 声明在 try 外：catch 分支需要用它清理临时文件
         let info: VideoInfo | undefined;
@@ -198,6 +277,8 @@ export async function POST(request: NextRequest) {
           let aiResult: Record<string, unknown>;
           let summarizeUsage: TokenUsage | null = null;
           let summarizeLatencyMs = 0;
+          let frameInfos: FrameInfo[] | undefined;
+          let visionUsage: TokenUsage | null = null;
           const totalStart = Date.now();
 
           // 统一处理：先轻量提取视频信息（不下载媒体）
@@ -216,6 +297,7 @@ export async function POST(request: NextRequest) {
               source: cached.transcriptSource,
             };
             aiResult = cached.result;
+            frameInfos = cached.frames;
             saveTranscript(info.id, transcript.segments, info, cached.transcriptEmbeddings);
           } else {
             // 缓存未命中才下载（字幕优先或音频）
@@ -239,8 +321,15 @@ export async function POST(request: NextRequest) {
               return;
             }
 
+            // 视觉理解：抽关键帧 → 视觉模型描述（失败静默降级为音频-only）
+            const vision = await doVisionPhase(url, info, downloadResult, processor, send);
+            if (vision) {
+              frameInfos = vision.frameInfos;
+              visionUsage = vision.usage;
+            }
+
             send(progress("analyzing", mapPhaseProgress("analyzing", 0)));
-            const summary = await doAISummarize(info, transcript, send);
+            const summary = await doAISummarize(info, transcript, send, vision ?? undefined);
             aiResult = summary.result;
             summarizeUsage = summary.usage;
             summarizeLatencyMs = summary.latencyMs;
@@ -252,9 +341,15 @@ export async function POST(request: NextRequest) {
 
           const totalMs = Date.now() - totalStart;
           const cost = summarizeUsage ? calcCost(summarizeUsage) : null;
+          const visionCost = visionUsage ? calcCost(visionUsage, "siliconflow-vl") : null;
           if (summarizeUsage && cost !== null) {
             console.log(
               `[metrics] ${info.id} 总结完成: token ${summarizeUsage.totalTokens} (in ${summarizeUsage.promptTokens}/out ${summarizeUsage.completionTokens}), 总耗时 ${totalMs}ms (总结 ${summarizeLatencyMs}ms), 成本 ¥${cost.toFixed(4)}`
+            );
+          }
+          if (visionUsage && visionCost !== null) {
+            console.log(
+              `[metrics] ${info.id} 视觉理解: token ${visionUsage.totalTokens} (in ${visionUsage.promptTokens}/out ${visionUsage.completionTokens}), 成本 ¥${visionCost.toFixed(4)}`
             );
           }
 
@@ -267,11 +362,14 @@ export async function POST(request: NextRequest) {
               transcriptSegments: transcript.segments,
               result: aiResult,
               cached: !!cached,
+              frames: frameInfos ?? [],
               metrics: {
                 totalMs,
                 summarizeMs: summarizeLatencyMs,
                 usage: summarizeUsage,
                 cost,
+                visionUsage,
+                visionCost,
               },
             },
           });
@@ -284,7 +382,11 @@ export async function POST(request: NextRequest) {
           }
         } finally {
           clearInterval(heartbeatInterval);
-          controller.close();
+          try {
+            controller.close();
+          } catch {
+            // 客户端断开时已在 abort 监听中关闭
+          }
         }
       },
     });
@@ -314,6 +416,11 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ success: false, error: "请提供 videoId" }, { status: 400 });
     }
     await cleanupTempFiles(videoId);
+    await cleanupFrameFiles(videoId);
+    // 同步失效内存态数据，避免缓存命中返回悬空帧引用、追问残留旧数据
+    invalidateCache(videoId);
+    removeTranscript(videoId);
+    clearConversation(videoId);
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "清理失败";

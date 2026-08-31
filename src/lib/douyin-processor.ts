@@ -73,9 +73,14 @@ export async function extractAndDownloadDouyinAudio(
 }
 
 /**
- * 下载抖音视频，提取音频为 m4a
+ * 下载抖音视频并提取音频为 m4a
+ * keepVideo=true 时保留视频文件（供关键帧提取），由调用方负责后续清理
  */
-export async function downloadDouyinAudio(videoUrl: string, videoId: string): Promise<string> {
+export async function downloadDouyinVideoAndAudio(
+  videoUrl: string,
+  videoId: string,
+  keepVideo: boolean
+): Promise<{ audioPath: string; videoPath: string | null }> {
   await fs.mkdir(TEMP_DIR, { recursive: true });
 
   const videoPath = path.join(TEMP_DIR, `${videoId}.mp4`);
@@ -100,8 +105,19 @@ export async function downloadDouyinAudio(videoUrl: string, videoId: string): Pr
     audioPath,
   ], { timeout: 60000 });
 
-  // 清理视频文件
-  fs.unlink(videoPath).catch(() => {});
+  // 保留视频供抽帧，否则立即清理
+  if (!keepVideo) {
+    fs.unlink(videoPath).catch(() => {});
+    return { audioPath, videoPath: null };
+  }
 
+  return { audioPath, videoPath };
+}
+
+/**
+ * 下载抖音视频，提取音频为 m4a（视频文件用完即删）
+ */
+export async function downloadDouyinAudio(videoUrl: string, videoId: string): Promise<string> {
+  const { audioPath } = await downloadDouyinVideoAndAudio(videoUrl, videoId, false);
   return audioPath;
 }

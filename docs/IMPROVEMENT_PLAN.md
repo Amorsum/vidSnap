@@ -70,8 +70,8 @@
 
 - [ ] **两套废弃 API 路由**：`process/summarize`、`process/transcribe` 引用了不存在的旧模块
 - [x] **手写 JSON 解析**：`fixTruncatedJSON` 手动补括号，脆弱，应换结构化输出（A2 已用 json mode 替换）
-- [ ] **无测试、无日志聚合、无监控**
-- [ ] **`.env.example` 缺失**（README/CONTEXT 引用了它）
+- [x] **无测试、无日志聚合、无监控**：测试体系已建立（test-suite 技能 + tester 专员 + 报告存档 docs/test-reports/），日志聚合/监控仍待做
+- [x] **`.env.example` 缺失**：已补齐（含 VISION_ENABLED/VISION_MODEL 视觉配置）
 - [ ] **小瑕疵**：Header GitHub 死链、根目录调试残留文件（`--dump-json`、`.dump`）
 
 ### 🟡 产品 / 合规
@@ -120,8 +120,8 @@
 ### 阶段 C：差异化加分（可选）
 
 - [ ] 浏览器插件一键总结（YouTube/B站）
-- [ ] 关键帧画廊（视觉 + 字幕多模态理解）
-- [ ] Agent 化（系统自主判断视频类型 → 选策略 → 选模型）
+- [x] 关键帧画廊（视觉 + 字幕多模态理解）：FFmpeg 均匀采样抽帧 → Qwen3-VL 批量画面描述 → 与字幕按时间戳融合进总结；画廊可点击跳转分段；视觉失败静默降级音频-only
+- [x] Agent 化（追问 tool-calling 自主决策检索策略）：语义/关键词/时间范围三工具 + 三重防死循环 + 前端工具轨迹可见
 
 ---
 
@@ -162,6 +162,9 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-08-31 | 阶段 C | 关键帧视觉理解（多模态）：FFmpeg 均匀采样抽帧（确定性时间戳）→ 硅基流动 Qwen3-VL-32B 批量画面描述 → 与字幕按时间戳融合进总结（±5s 语义对齐、冲突以画面为准）；关键帧画廊点击跳转分段 + HMAC 签名帧图服务 + 2h 帧生命周期懒清理；视觉失败静默降级音频-only；E2E 真机验证通过（6 帧 / 902 tokens / ¥0.0017） | src/lib/keyframes.ts, vision.ts, api/frames/route.ts, process/route.ts | ✅ 已完成 |
+| 2026-08-31 | 阶段 C | 追问 Agent 化：callLLMToolLoop（DeepSeek function calling + Claude tool_use 双协议归一）三工具自主决策检索（语义/关键词/时间范围），轮数上限 + 重复调用终止 + 无工具终轮三重防死循环，前端可见工具轨迹；四类问题实测工具选择全对 | src/lib/llm.ts, api/followup/route.ts, prompts.ts, ChatPanel.tsx | ✅ 已完成 |
+| 2026-08-31 | 收尾 | 评测集 2→12 条（多类型多语言 + 1 条真实视频）+ 脚本 --only/归档/重试，全量重跑幻觉率 0.0% / 召回率 99.1%；修复客户端断开 uncaughtException 与 DELETE 缓存失效；test-suite 技能新增 L/M 模块（tester 新一轮测试报告待出） | scripts/eval/, docs/AI_CODING.md, .claude/ | ✅ 已完成 |
 | 2026-08-31 | 收尾 | update-plan 技能并入 git-push：提交前自动同步 README 现状 + 改进方案进展日志，删除 update-plan 技能目录，Stop 钩子提醒改指 /git-push | .claude/skills/git-push/SKILL.md, .claude/hooks/stop.sh, docs/AI_CODING.md | ✅ 已完成 |
 | 2026-08-31 | 收尾 | P0 简历可见性：README 大改版（mermaid 架构图 + AI 工程亮点 8 条 + 评测/成本数据 + 4 张真实界面截图）+ 仓库卫生（删 7 个调试残留脚本）+ 新增 docs/AI_CODING.md 多智能体工作流文档；tsc/build 验证通过 | README.md, docs/AI_CODING.md, docs/screenshots/, scripts/ | ✅ 已完成 |
 | 2026-08-30 | 收尾 | 建立测试工具链：test-suite skill + tester 专员，全项目首轮测试 30/30 全通过（100%，仅 2 项环境相关），报告存档 docs/test-reports/；测试成本约 ¥0.01（3 次 LLM 调用） | .claude/, docs/test-reports/ | ✅ 已完成 |

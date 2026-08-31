@@ -5,6 +5,7 @@ import Header from "@/components/Header";
 import URLInput from "@/components/URLInput";
 import ProcessingStatus, { type ProgressStep } from "@/components/ProcessingStatus";
 import ResultPanel, { type SummaryResult } from "@/components/ResultPanel";
+import type { FrameInfo } from "@/components/KeyframeGallery";
 import ChatPanel, { type Turn } from "@/components/ChatPanel";
 import FollowUpInput from "@/components/FollowUpInput";
 import Footer from "@/components/Footer";
@@ -17,6 +18,7 @@ interface ProcessResult {
   transcriptText: string;
   transcriptSegments: { start: number; end: number; text: string }[];
   result: SummaryResult;
+  frames?: FrameInfo[];
 }
 
 // 追问条目的自增 id（模块级，用于按身份更新，避免按下标覆盖错条目）
@@ -186,9 +188,9 @@ export default function Home() {
     setConversation((prev) => [...prev, { id: turnId, question, answer: "" }]);
 
     // 按条目 id 更新答案；若期间会话被清空（用户换了新视频），过期响应自然被丢弃
-    const updateTurn = (answer: string) => {
+    const updateTurn = (answer: string, toolsUsed?: string[]) => {
       setConversation((prev) =>
-        prev.map((t) => (t.id === turnId ? { ...t, answer } : t))
+        prev.map((t) => (t.id === turnId ? { ...t, answer, toolsUsed } : t))
       );
     };
 
@@ -206,7 +208,7 @@ export default function Home() {
         setGatePassed(false);
         setConversation((prev) => prev.filter((t) => t.id !== turnId));
       } else if (data.success) {
-        updateTurn(data.answer);
+        updateTurn(data.answer, data.toolsUsed);
       } else {
         updateTurn(data.error || "追问失败");
       }
@@ -287,6 +289,7 @@ export default function Home() {
                 video={result.video}
                 result={result.result}
                 transcriptSource={result.transcriptSource}
+                frames={result.frames}
               />
             </div>
             {/* 右：追问对话 */}

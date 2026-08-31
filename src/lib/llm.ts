@@ -273,3 +273,260 @@ export async function* callLLMStreaming(
   // 流意外结束（未收到 [DONE]）时也回调
   if (lastUsage && options?.onUsage) options.onUsage(lastUsage);
 }
+
+// ─── Tool-calling 循环（Agentic 调用） ───
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  /** JSON Schema（DeepSeek: parameters；Claude: input_schema） */
+  parameters: Record<string, unknown>;
+}
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  /** JSON 字符串 */
+  arguments: string;
+}
+
+export interface ToolLoopResult {
+  text: string;
+  toolsUsed: string[];
+  usage: TokenUsage | null;
+}
+
+interface ToolLoopOptions {
+  systemPrompt: string;
+  messages: { role: "user" | "assistant"; content: string }[];
+  tools: ToolDefinition[];
+  executeTool: (call: ToolCall) => Promise<string>;
+  /** 工具执行轮数上限（默认 3），超限后强制直接回答 */
+  maxToolRounds?: number;
+  maxTokens?: number;
+  onUsage?: (usage: TokenUsage) => void;
+}
+
+const FORCE_ANSWER_MESSAGE = "请基于已检索到的信息直接回答用户的问题，不要再调用任何工具。";
+
+/**
+ * 让模型自主决定是否/如何调用工具的多轮循环（追问 Agent 化）
+ * 三重防护：轮数上限、相邻两轮调用完全相同即终止、单请求 60s 超时
+ * 支持 DeepSeek（OpenAI function calling）与 Claude（tool_use/tool_result）两种协议
+ */
+export async function callLLMToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult> {
+  const config = getConfig();
+  const maxTokens = opts.maxTokens || 1500;
+  const maxToolRounds = opts.maxToolRounds ?? 3;
+  const toolsUsed: string[] = [];
+
+  const accumulate = (target: TokenUsage | null, usage: TokenUsage): TokenUsage => {
+    if (!target) return { ...usage };
+    target.promptTokens += usage.promptTokens;
+    target.completionTokens += usage.completionTokens;
+    target.totalTokens += usage.totalTokens;
+    target.cacheHitTokens += usage.cacheHitTokens;
+    return target;
+  };
+  let totalUsage: TokenUsage | null = null;
+
+  const conversation: Array<Record<string, unknown>> = opts.messages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+
+  let lastSignature: string | null = null;
+  let rounds = 0;
+  let finalText = "";
+
+  while (true) {
+    if (config.provider === "deepseek") {
+      // OpenAI 兼容 function calling
+      const body: Record<string, unknown> = {
+        model: config.model,
+        messages: conversation,
+        max_tokens: maxTokens,
+        temperature: 0.3,
+        ...(rounds < maxToolRounds
+          ? {
+              tools: opts.tools.map((t) => ({
+                type: "function",
+                function: { name: t.name, description: t.description, parameters: t.parameters },
+              })),
+              tool_choice: "auto",
+            }
+          : {}),
+      };
+
+      const response = await fetch(config.apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(60000),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`DeepSeek API 错误 (${response.status}): ${errorText}`);
+      }
+
+      const data = await response.json();
+      if (data.usage) {
+        totalUsage = accumulate(totalUsage, {
+          promptTokens: data.usage.prompt_tokens || 0,
+          completionTokens: data.usage.completion_tokens || 0,
+          totalTokens: data.usage.total_tokens || 0,
+          cacheHitTokens: data.usage.prompt_cache_hit_tokens || 0,
+        });
+      }
+
+      const message = data.choices?.[0]?.message;
+      const content: string = message?.content || "";
+      const toolCalls: ToolCall[] = (message?.tool_calls || []).map((tc: {
+        id: string;
+        function?: { name?: string; arguments?: string };
+      }) => ({
+        id: tc.id,
+        name: tc.function?.name || "",
+        arguments: tc.function?.arguments || "{}",
+      }));
+
+      if (toolCalls.length === 0) {
+        finalText = content || finalText;
+        break;
+      }
+      if (rounds >= maxToolRounds) {
+        // 轮数超限：强制不带 tools 的最后一轮直接回答
+        conversation.push({ role: "user", content: FORCE_ANSWER_MESSAGE });
+        rounds = maxToolRounds + 1;
+        continue;
+      }
+      const signature = toolCalls.map((c) => `${c.name}:${c.arguments}`).sort().join("|");
+      if (signature === lastSignature) {
+        // 与上一轮调用完全相同（死循环）：强制直接回答
+        conversation.push({ role: "user", content: FORCE_ANSWER_MESSAGE });
+        lastSignature = signature;
+        rounds = maxToolRounds + 1;
+        continue;
+      }
+      lastSignature = signature;
+
+      // 执行工具并回填结果
+      conversation.push({
+        role: "assistant",
+        content: content || null,
+        tool_calls: message.tool_calls,
+      });
+      for (const call of toolCalls) {
+        toolsUsed.push(call.name);
+        let resultText: string;
+        try {
+          resultText = await opts.executeTool(call);
+        } catch (err) {
+          resultText = `工具执行失败: ${err instanceof Error ? err.message : String(err)}`;
+        }
+        conversation.push({ role: "tool", tool_call_id: call.id, content: resultText });
+      }
+      rounds++;
+    } else {
+      // Claude tool_use / tool_result 协议
+      const body: Record<string, unknown> = {
+        model: config.model,
+        max_tokens: maxTokens,
+        system: opts.systemPrompt,
+        messages: conversation,
+        ...(rounds < maxToolRounds
+          ? {
+              tools: opts.tools.map((t) => ({
+                name: t.name,
+                description: t.description,
+                input_schema: t.parameters,
+              })),
+            }
+          : {}),
+      };
+
+      const response = await fetch(config.apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": config.apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(60000),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Claude API 错误 (${response.status}): ${errorText}`);
+      }
+
+      const data = await response.json();
+      if (data.usage) {
+        const inputTokens = data.usage.input_tokens || 0;
+        const outputTokens = data.usage.output_tokens || 0;
+        totalUsage = accumulate(totalUsage, {
+          promptTokens: inputTokens,
+          completionTokens: outputTokens,
+          totalTokens: inputTokens + outputTokens,
+          cacheHitTokens: data.usage.cache_read_input_tokens || 0,
+        });
+      }
+
+      const contentBlocks = data.content || [];
+      const text = contentBlocks
+        .filter((b: { type?: string }) => b.type === "text")
+        .map((b: { text?: string }) => b.text || "")
+        .join("");
+      const toolUses = contentBlocks.filter((b: { type?: string }) => b.type === "tool_use");
+
+      if (toolUses.length === 0) {
+        finalText = text || finalText;
+        break;
+      }
+      if (rounds >= maxToolRounds) {
+        conversation.push({ role: "user", content: FORCE_ANSWER_MESSAGE });
+        rounds = maxToolRounds + 1;
+        continue;
+      }
+      const signature = toolUses
+        .map((tu: { name?: string; input?: unknown }) => `${tu.name}:${JSON.stringify(tu.input)}`)
+        .sort()
+        .join("|");
+      if (signature === lastSignature) {
+        conversation.push({ role: "user", content: FORCE_ANSWER_MESSAGE });
+        lastSignature = signature;
+        rounds = maxToolRounds + 1;
+        continue;
+      }
+      lastSignature = signature;
+
+      conversation.push({ role: "assistant", content: contentBlocks });
+      for (const tu of toolUses) {
+        toolsUsed.push(tu.name);
+        let resultText: string;
+        try {
+          resultText = await opts.executeTool({
+            id: tu.id,
+            name: tu.name,
+            arguments: JSON.stringify(tu.input || {}),
+          });
+        } catch (err) {
+          resultText = `工具执行失败: ${err instanceof Error ? err.message : String(err)}`;
+        }
+        conversation.push({
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: tu.id, content: resultText }],
+        });
+      }
+      rounds++;
+    }
+  }
+
+  if (opts.onUsage && totalUsage) opts.onUsage(totalUsage);
+  return { text: finalText, toolsUsed, usage: totalUsage };
+}

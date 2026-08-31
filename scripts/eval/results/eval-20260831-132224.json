@@ -1,0 +1,122 @@
+{
+  "evaluatedAt": "2026-08-31T13:22:24.618Z",
+  "fixtureCount": 12,
+  "totals": {
+    "points": 139,
+    "hallucinated": 0,
+    "reference": 106,
+    "covered": 105,
+    "hallucinationRate": 0,
+    "recall": 99.1
+  },
+  "perFixture": [
+    {
+      "id": "rag-tutorial",
+      "points": 9,
+      "hallucinated": 0,
+      "hallucinationRate(%)": 0,
+      "reference": 7,
+      "covered": 7,
+      "recall(%)": 100
+    },
+    {
+      "id": "tech-news",
+      "points": 11,
+      "hallucinated": 0,
+      "hallucinationRate(%)": 0,
+      "reference": 10,
+      "covered": 10,
+      "recall(%)": 100
+    },
+    {
+      "id": "ai-researcher-interview",
+      "points": 8,
+      "hallucinated": 0,
+      "hallucinationRate(%)": 0,
+      "reference": 10,
+      "covered": 9,
+      "recall(%)": 90
+    },
+    {
+      "id": "japanese-keynote",
+      "points": 12,
+      "hallucinated": 0,
+      "hallucinationRate(%)": 0,
+      "reference": 10,
+      "covered": 10,
+      "recall(%)": 100
+    },
+    {
+      "id": "earbuds-review",
+      "points": 8,
+      "hallucinated": 0,
+      "hallucinationRate(%)": 0,
+      "reference": 6,
+      "covered": 6,
+      "recall(%)": 100
+    },
+    {
+      "id": "me-at-the-zoo",
+      "points": 6,
+      "hallucinated": 0,
+      "hallucinationRate(%)": 0,
+      "reference": 4,
+      "covered": 4,
+      "recall(%)": 100
+    },
+    {
+      "id": "docker-deploy-tutorial",
+      "points": 15,
+      "hallucinated": 0,
+      "hallucinationRate(%)": 0,
+      "reference": 9,
+      "covered": 9,
+      "recall(%)": 100
+    },
+    {
+      "id": "python-venv-tutorial",
+      "points": 13,
+      "hallucinated": 0,
+      "hallucinationRate(%)": 0,
+      "reference": 10,
+      "covered": 10,
+      "recall(%)": 100
+    },
+    {
+      "id": "react-hooks-tutorial",
+      "points": 16,
+      "hallucinated": 0,
+      "hallucinationRate(%)": 0,
+      "reference": 10,
+      "covered": 10,
+      "recall(%)": 100
+    },
+    {
+      "id": "anc-headphones-review",
+      "points": 16,
+      "hallucinated": 0,
+      "hallucinationRate(%)": 0,
+      "reference": 10,
+      "covered": 10,
+      "recall(%)": 100
+    },
+    {
+      "id": "robot-vacuum-review",
+      "points": 14,
+      "hallucinated": 0,
+      "hallucinationRate(%)": 0,
+      "reference": 10,
+      "covered": 10,
+      "recall(%)": 100
+    },
+    {
+      "id": "typhoon-news",
+      "points": 11,
+      "hallucinated": 0,
+      "hallucinationRate(%)": 0,
+      "reference": 10,
+      "covered": 10,
+      "recall(%)": 100
+    }
+  ]
+}

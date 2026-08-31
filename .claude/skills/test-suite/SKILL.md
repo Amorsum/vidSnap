@@ -32,6 +32,8 @@ description: VidSnap 功能测试：先按模块穷举测试用例（含预期�
 - **I. 抖音**（可选，受反爬环境影响）：解析失败时错误消息含真实原因（非固定文案）
 - **J. 限流**（**放在最后**，会占用 10 分钟配额）：`/api/process` 同 IP 第 11 次 → 429 且带重试秒数
 - **K. 前端页面**：首页 200 且含门禁相关文案；`/?code=<访问码>` 可正常加载（HTML 层面验证）
+- **L. 视觉理解（关键帧）**：L1 F 用例的 result 含 `frames` 数组（结构：time 秒数 / src / description 非空）；L2 result 里 frames 的 src（`/api/frames?videoId=..&idx=..&token=..`）curl → 200 + `Content-Type: image/jpeg`；L3 frames 接口鉴权：伪造 token → 401、无鉴权 → 401、含 `../` 的 videoId → 400；L4 `VISION_ENABLED=0` 重启服务后管线无 `vision` 步骤、frames 为空数组、主流程正常（测完恢复）；L5 `%TEMP%\vidsnap` 帧文件命名 `${videoId}-kf-*.jpg`、管线结束后音频/视频文件被清而帧文件保留、DELETE `/api/process` 后帧文件删除；L6 缓存命中（G 复用）时 result.frames 与首次一致且图片可访问
+- **M. Agentic 追问**：M1 追问响应含 `toolsUsed` 数组字段；M2 语义类问题（如"讲的方法是什么"）toolsUsed 含 `semantic_search`；M3 明确时间问题（如"第 1 分钟讲了什么"）toolsUsed 含 `segment_range` 或 `keyword_search`；M4 寒暄问题 toolsUsed 为空数组且正常回答；M5 复杂问题 toolsUsed 长度 ≤ 3 且整体 <60s 返回（loop 上限生效）；M6 追问缺参 400 / 不存在 videoId 404 / 无码 401 不回归
 
 ## 阶段三：执行
 
