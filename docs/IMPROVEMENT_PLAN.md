@@ -162,6 +162,7 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-08-31 | 收尾 | P0 简历可见性：README 大改版（mermaid 架构图 + AI 工程亮点 8 条 + 评测/成本数据 + 4 张真实界面截图）+ 仓库卫生（删 7 个调试残留脚本）+ 新增 docs/AI_CODING.md 多智能体工作流文档；tsc/build 验证通过 | README.md, docs/AI_CODING.md, docs/screenshots/, scripts/ | ✅ 已完成 |
 | 2026-08-30 | 收尾 | 建立测试工具链：test-suite skill + tester 专员，全项目首轮测试 30/30 全通过（100%，仅 2 项环境相关），报告存档 docs/test-reports/；测试成本约 ¥0.01（3 次 LLM 调用） | .claude/, docs/test-reports/ | ✅ 已完成 |
 | 2026-08-30 | 收尾 | 代码规范化清理：新建 code-standard skill + code-standarder 专员并跑通全流程（死代码删除/类型统一/SSE 解析抽取 sse.ts/组件去重 ComposerInput/memo 优化，净 -144 行）+ 修复限流桶清理恒真 bug + 提交推送自动化工具链（git-push skill + git-committer），tsc/build/真机冒烟全通过 | src/ 全体, security.ts, .claude/ | ✅ 已完成 |
 | 2026-08-30 | 上线修复 | B3 轻量版：访问码门禁（ACCESS_CODE + verify 接口 + 前端门禁页 + localStorage/URL参数）+ 每 IP 滑动窗口限流（CF 真实 IP，防暴力猜测失败计数）+ 异常分支临时文件清理 + autostart 幂等/端口轮询 + 抖音脚本 UTF-8 根治 emoji + .env.example；真机验证 401/429/管线全通过 | security.ts, verify/route.ts, process/followup route.ts, page.tsx, autostart.bat, douyin_playwright.py | ✅ 已完成 |
