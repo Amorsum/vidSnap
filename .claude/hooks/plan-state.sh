@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # VidSnap 改进方案状态指纹工具
 #   fingerprint : 输出当前 git 状态指纹（HEAD + 工作区改动，排除 .claude/ 与方案文档自身）
-#   record      : 将当前指纹写入 .claude/.plan-state（供 Stop 钩子判断是否需要触发 update-plan）
+#   record      : 将当前指纹写入 .claude/.plan-state（供 Stop 钩子判断是否需要提醒运行 git-push）
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo "$(cd "$(dirname "$0")/../.." && pwd)")"

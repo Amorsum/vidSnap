@@ -1,11 +1,13 @@
 ---
 name: git-push
-description: 把本轮改动提交并推送到 GitHub：自动按仓库规范生成中文 commit message，提交后同步 plan-state 指纹。手动 /git-push 调用。
+description: 把本轮改动提交并推送到 GitHub：提交前自动同步项目文档（README 现状核对 + 改进方案进展日志），按仓库规范生成中文 commit message，推送后同步 plan-state 指纹。手动 /git-push 调用。
 ---
 
-# git-push — 提交并推送 GitHub
+# git-push — 提交并推送 GitHub（含文档同步）
 
 把当前工作区的改动生成一个规范提交并推送到 GitHub。
+
+**提交前先同步项目文档**：README 与 IMPROVEMENT_PLAN.md 是本项目的「简历门面」，必须与代码保持同步（本步骤整合自原 update-plan 技能，原技能已废弃）。
 
 ## 执行步骤
 
@@ -16,19 +18,32 @@ description: 把本轮改动提交并推送到 GitHub：自动按仓库规范生
    - `.env.local`、`cookies.txt`、`cloudflared-config.yml`、`.claude/.plan-state`、`--dump-json` 等调试产物
    - `.env.example` 是模板，**可以**提交（.gitignore 已放行）
    - 若发现敏感文件出现在 `git status` 未忽略列表中，先停下来告知用户，不要提交。
-3. **生成 commit message**：参考 `git log --oneline -5` 的仓库风格，格式为：
+3. **同步项目文档（commit 前必做）**：
+   - **3.1 更新 README.md**：逐项核对与实际代码是否一致，有出入则更新：
+     - 功能特性 / 架构图：本轮是否新增/删除了功能、路由、模块？
+     - 数据表（评测/成本/测试）：是否有更新的实测数据（docs/test-reports/、metrics 日志）？
+     - 目录结构：是否新增/删除了文件或目录？
+     - 路线图：本轮完成的事项把 `- [ ]` 改为 `- [x]`
+     - 演示截图：仅当 UI/交互有明显变化（新功能上线）才刷新（需服务在线 + Playwright，代价高）；否则跳过
+     - README 已是最新时，在汇报中说明「README 已核对，无需更新」
+   - **3.2 更新 IMPROVEMENT_PLAN.md 进展日志**：
+     - 定位「📋 执行进展日志」表格，在**最上方**新增一行：日期（`YYYY-MM-DD`）/ 阶段 / 本轮完成内容（一句话，不重复已有条目）/ 涉及文件（1-3 个关键文件）/ 状态（`✅ 已完成` 或 `🚧 进行中`）
+     - 同步正文状态勾选：本轮完成的改进项，把正文 `- [ ]` 改为 `- [x]`，其余内容不动
+4. **生成 commit message**：参考 `git log --oneline -5` 的仓库风格，格式为：
    ```
    <type>: <中文一句话概述>（关键细节）
    ```
    - type 取值：`feat`（新功能）/ `fix`（修 bug）/ `refactor`（重构）/ `docs`（文档）/ `chore`（杂项）
    - 一句话说清本轮做了什么，细节用括号补充，不要冗长
-4. **提交**：用 `git add <文件1> <文件2> ...` 明确列出文件（**不要** `git add -A` 或 `git add .`），然后 `git commit -m "<message>"`。
+   - 本轮含代码改动 + 文档同步：以代码改动为主定 type，括号内带上文档同步；**只有文档改动时 type 用 `docs`**
+5. **提交**：用 `git add <文件1> <文件2> ...` 明确列出文件（**含步骤 3 更新的文档**，禁止 `git add -A` 或 `git add .`），然后 `git commit -m "<message>"`。
    - 一轮工作一个逻辑提交，不拆分碎提交，不改写历史（除非用户要求）。
-5. **推送**：`git push origin <当前分支>`（本项目默认 demo）。推送失败（网络/冲突）时如实报告错误，并给出建议（如稍后重试），不要反复重试。
-6. **同步指纹（必须，最后一步）**：运行 `bash .claude/hooks/plan-state.sh record`，避免 Stop 钩子重复触发 update-plan。
+6. **推送**：`git push origin <当前分支>`（本项目默认 demo）。推送失败（网络/冲突）时如实报告错误，并给出建议（如稍后重试），不要反复重试。
+7. **同步指纹（必须，最后一步）**：运行 `bash .claude/hooks/plan-state.sh record`，避免 Stop 钩子重复触发。
 
 ## 规则
 
 - 只提交与本轮工作相关的文件；无关的改动（如用户手动改了一半的其他文件）单独询问。
 - 提交信息用中文，与仓库历史保持一致。
+- 文档同步如实汇报：README / 进展日志改了还是没改、为什么。
 - 推送成功与否都要如实报告（commit hash、推送的分支与结果）。

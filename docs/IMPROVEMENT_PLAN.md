@@ -2,7 +2,7 @@
 
 > **目标**：在现有 Demo MVP 基础上，补齐「正式上线」所需能力，并把项目打磨成 AI 岗位简历中能讲出深度的作品。
 >
-> **维护方式**：本文档由 `update-plan` 技能自动维护 —— 每次指令执行完后，Stop 钩子会自动触发该技能，把本轮进展写入下方「📋 执行进展日志」。
+> **维护方式**：本文档由 `git-push` 技能在每次提交前自动维护（整合自原 `update-plan` 技能）—— 每轮工作结束运行 /git-push 时，自动把本轮进展写入下方「📋 执行进展日志」并同步状态勾选。
 
 ---
 
@@ -158,10 +158,11 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 ## 📋 执行进展日志
 
-> 由 `update-plan` 技能自动维护，最新进展在上方。
+> 由 `git-push` 技能在提交前自动维护，最新进展在上方。
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-08-31 | 收尾 | update-plan 技能并入 git-push：提交前自动同步 README 现状 + 改进方案进展日志，删除 update-plan 技能目录，Stop 钩子提醒改指 /git-push | .claude/skills/git-push/SKILL.md, .claude/hooks/stop.sh, docs/AI_CODING.md | ✅ 已完成 |
 | 2026-08-31 | 收尾 | P0 简历可见性：README 大改版（mermaid 架构图 + AI 工程亮点 8 条 + 评测/成本数据 + 4 张真实界面截图）+ 仓库卫生（删 7 个调试残留脚本）+ 新增 docs/AI_CODING.md 多智能体工作流文档；tsc/build 验证通过 | README.md, docs/AI_CODING.md, docs/screenshots/, scripts/ | ✅ 已完成 |
 | 2026-08-30 | 收尾 | 建立测试工具链：test-suite skill + tester 专员，全项目首轮测试 30/30 全通过（100%，仅 2 项环境相关），报告存档 docs/test-reports/；测试成本约 ¥0.01（3 次 LLM 调用） | .claude/, docs/test-reports/ | ✅ 已完成 |
 | 2026-08-30 | 收尾 | 代码规范化清理：新建 code-standard skill + code-standarder 专员并跑通全流程（死代码删除/类型统一/SSE 解析抽取 sse.ts/组件去重 ComposerInput/memo 优化，净 -144 行）+ 修复限流桶清理恒真 bug + 提交推送自动化工具链（git-push skill + git-committer），tsc/build/真机冒烟全通过 | src/ 全体, security.ts, .claude/ | ✅ 已完成 |

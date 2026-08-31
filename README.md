@@ -95,7 +95,7 @@ flowchart TD
 
 ## AI 协作开发
 
-本项目全程与 AI 结对开发（TRAE 起步 → Claude Code 多智能体工作流），并沉淀了一套可复用的多智能体协作体系（3 个专职 agent + 4 个 skill + 自动进度文档化），详见 [docs/AI_CODING.md](docs/AI_CODING.md)。
+本项目全程与 AI 结对开发（TRAE 起步 → Claude Code 多智能体工作流），并沉淀了一套可复用的多智能体协作体系（3 个专职 agent + 3 个 skill + 自动进度文档化），详见 [docs/AI_CODING.md](docs/AI_CODING.md)。
 
 ## 技术栈
 
@@ -144,7 +144,7 @@ npm run dev
 │   └── test-reports/            # 自动化测试报告
 ├── .claude/                     # Claude Code 多智能体工作流
 │   ├── agents/                  # 3 个专职 agent（提交/规范/测试）
-│   ├── skills/                  # 4 个可复用 skill
+│   ├── skills/                  # 3 个可复用 skill（git-push 含文档同步）
 │   └── hooks/                   # Stop 钩子 + 进度指纹
 ├── src/
 │   ├── app/

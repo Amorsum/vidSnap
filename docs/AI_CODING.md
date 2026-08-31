@@ -10,7 +10,7 @@
 | 阶段 | 工具 | 方式 | 产出 |
 |------|------|------|------|
 | 2026-07 | TRAE | 人与 AI 结对，从产品规划到部署全流程 | Demo MVP + TRAE 比赛初赛（学习工作赛道） |
-| 2026-08 | Claude Code | 多智能体协作：3 个专职 agent + 4 个 skill + 自动进度文档化 | 工程化收尾：RAG/评测/可观测/鉴权/测试体系 |
+| 2026-08 | Claude Code | 多智能体协作：3 个专职 agent + 3 个 skill + 自动进度文档化 | 工程化收尾：RAG/评测/可观测/鉴权/测试体系 |
 
 核心体会：**结对编程阶段 AI 是「队友」，多智能体阶段 AI 变成了「团队」**——把开发流程中重复性、有明确标准的工作（提交、规范、测试、文档）拆成专职角色，让每个角色只做一类事，质量明显提升。
 
@@ -25,8 +25,8 @@ flowchart LR
     C -->|功能完成后| A2[code-standarder 规范专员<br/>死代码/重复/冗长 → 等价重构]
     C -->|重构完成后| A3[tester 测试专员<br/>用例穷举 → 执行 → 报告存档]
     A3 --> R[docs/test-reports/ 报告]
-    C -->|每轮结束| H[Stop 钩子：检测未记录进展]
-    H -->|有进展| P[update-plan 技能<br/>自动更新改进方案日志]
+    C -->|每轮结束| H[Stop 钩子：检测未提交进展]
+    H -->|有进展| P[git-push 技能<br/>提交前自动同步 README<br/>+ 改进方案日志]
     P --> S[.claude/.plan-state 指纹<br/>防止重复触发]
 ```
 
@@ -35,7 +35,7 @@ flowchart LR
 | 层 | 组成 | 职责 |
 |----|------|------|
 | **agents**（3 个） | git-committer / code-standarder / tester | 专职角色，各管一段流程 |
-| **skills**（4 个） | git-push / code-standard / test-suite / update-plan | 可复用流程手册，agent 与人类共用 |
+| **skills**（3 个） | git-push（含文档同步）/ code-standard / test-suite | 可复用流程手册，agent 与人类共用 |
 | **hooks** | Stop 钩子 + plan-state 指纹 | 进度自动文档化，防漏记/防重复 |
 | **settings** | settings.json / settings.local.json | 权限白名单等配置 |
 
@@ -79,8 +79,7 @@ Agent 是「角色」，skill 是「流程手册」。设计上 agent 优先调�
 |-------|---------|------|
 | `test-suite` | `/test-suite` 或 tester agent | 测试模块穷举清单 + 执行策略 + 报告模板 |
 | `code-standard` | `/code-standard` 或 code-standarder agent | 规范化检查项 + 硬性约束 + 验证要求 |
-| `git-push` | `/git-push` 或 git-committer agent | 提交安全检查 + commit 风格 + 推送流程 |
-| `update-plan` | Stop 钩子自动 / `/update-plan` | 进展日志更新规则 + 状态勾选同步 |
+| `git-push` | `/git-push` 或 git-committer agent | 提交安全检查 + **文档同步（README 现状核对 + 进展日志更新）** + commit 风格 + 推送流程 |
 
 ---
 
@@ -89,11 +88,13 @@ Agent 是「角色」，skill 是「流程手册」。设计上 agent 优先调�
 手动维护进展文档一定会烂尾。本项目的解法：
 
 1. **Stop 钩子**（`.claude/hooks/stop.sh`）：每轮 Claude 停止时自动运行，对比当前 git 状态指纹与上次记录值
-2. **指纹不一致** → 阻断停止，提示「本轮有未记录进展，请运行 update-plan」
-3. **update-plan 技能**：把本轮进展写进 `docs/IMPROVEMENT_PLAN.md` 的执行进展日志，并同步正文的状态勾选
+2. **指纹不一致** → 阻断停止，提示「本轮有未提交的进展，请运行 /git-push」
+3. **git-push 技能**（提交前）：把本轮进展写进 `docs/IMPROVEMENT_PLAN.md` 的执行进展日志并同步状态勾选，同时核对 README 与实际代码的一致性
 4. **记录指纹**（`plan-state.sh record`）→ 钩子停止提醒，防止重复触发
 
-效果：**每轮开发结束，改进方案文档自动保持最新**，项目演进有完整可回溯的记录（见 IMPROVEMENT_PLAN.md 的 17 条日志）。
+> 演进记录：文档同步最初是独立的 `update-plan` 技能（Stop 钩子直接触发）。2026-08-31 整合进 `git-push`——文档同步与提交天然同频（都是「一轮工作收尾」），拆成两个技能反而多一道手动步骤。
+
+效果：**每轮开发结束，README 与改进方案文档自动保持最新**，项目演进有完整可回溯的记录（见 IMPROVEMENT_PLAN.md 的日志）。
 
 ---
 
