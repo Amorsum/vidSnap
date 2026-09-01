@@ -9,6 +9,11 @@ import { formatTime } from "./prompts";
 const VISION_API_URL = "https://api.siliconflow.cn/v1/chat/completions";
 // 2026-08-31 实测：硅基流动已下线 Qwen2.5-VL 系列，账号可用视觉模型为 Qwen3-VL 系列（32B/30B-A3B/8B）
 const DEFAULT_VISION_MODEL = "Qwen/Qwen3-VL-32B-Instruct";
+// 降级链：主模型高峰期队列不稳（实测 500/超时），失败帧换备选模型补齐（各自独立队列）
+const VISION_MODEL_FALLBACKS = [
+  "Qwen/Qwen3-VL-30B-A3B-Instruct",
+  "Qwen/Qwen3-VL-8B-Instruct",
+];
 const FRAME_TOKEN_TTL_MS = 2 * 60 * 60 * 1000; // 与帧文件 TTL 一致
 
 export interface FrameDescription {
@@ -38,15 +43,16 @@ export function isVisionEnabled(): boolean {
  * 单次批量调用视觉模型描述全部关键帧
  * 返回 null 表示降级（调用方走音频-only 流程）
  */
-export async function describeFrames(
+/**
+ * 用指定模型对一组帧做批量视觉描述（每批 4 帧小请求，90s 超时 + 5xx 重试，单批失败跳过）
+ * 返回该模型成功拿到的描述；全部批次失败返回 null
+ */
+async function describeWithModel(
   frames: { path: string; time: number }[],
-  videoTitle?: string
-): Promise<VisionResult | null> {
-  if (frames.length === 0) return null;
-
-  const apiKey = process.env.SENSEVOICE_API_KEY;
-  if (!apiKey) return null;
-
+  videoTitle: string | undefined,
+  model: string,
+  apiKey: string
+): Promise<{ descriptions: FrameDescription[]; usage: TokenUsage[] } | null> {
   // 每批最多 4 帧：小请求在高峰期排队时间短、失败影响面小；
   // 单批失败跳过保留其他批（部分画面描述 > 全无）
   const BATCH_SIZE = 4;
@@ -74,7 +80,7 @@ export async function describeFrames(
 输出 JSON，格式：{"frames":[{"time": 秒数, "description": "描述"}]}，frames 数组长度与输入图片数一致，按图片顺序排列。`;
 
       const body = {
-        model: process.env.VISION_MODEL || DEFAULT_VISION_MODEL,
+        model,
         messages: [
           {
             role: "user",
@@ -96,10 +102,11 @@ export async function describeFrames(
         signal: AbortSignal.timeout(90000),
       });
 
-      // 瞬时服务端错误（500/502/503/429）重试一次：实测偶发 500，重试可救回
+      // 瞬时服务端错误（500/502/503/429）延时重试一次：实测偶发 500，重试可救回
       if (!response.ok && [429, 500, 502, 503].includes(response.status)) {
         const retryBody = await response.text().catch(() => "");
-        console.log(`[vision] 视觉 API ${response.status}，重试一次:`, retryBody.slice(0, 200));
+        console.log(`[vision] ${model} API ${response.status}，延时重试一次:`, retryBody.slice(0, 200));
+        await new Promise((r) => setTimeout(r, 2000));
         response = await fetch(VISION_API_URL, {
           method: "POST",
           headers: {
@@ -177,17 +184,58 @@ export async function describeFrames(
         });
       }
     } catch (err) {
-      // 单批失败跳过，保留其他批结果；全部失败时整体降级
-      console.log(`[vision] 第 ${i / BATCH_SIZE + 1} 批视觉理解失败，跳过该批:`, err);
+      // 单批失败跳过，保留其他批结果；全部失败时该模型返回 null
+      console.log(`[vision] ${model} 第 ${i / BATCH_SIZE + 1} 批失败，跳过该批:`, err);
+    }
+  }
+
+  return descriptions.length > 0 ? { descriptions, usage: usages } : null;
+}
+
+/**
+ * 单次批量调用视觉模型描述全部关键帧（含模型降级链）
+ * 返回 null 表示降级（调用方走音频-only 流程）
+ */
+export async function describeFrames(
+  frames: { path: string; time: number }[],
+  videoTitle?: string
+): Promise<VisionResult | null> {
+  if (frames.length === 0) return null;
+
+  const apiKey = process.env.SENSEVOICE_API_KEY;
+  if (!apiKey) return null;
+
+  // 模型链：主模型（可用 VISION_MODEL 覆盖）→ 30B-A3B → 8B；上一模型未覆盖的帧交给下一模型补齐
+  const primary = process.env.VISION_MODEL || DEFAULT_VISION_MODEL;
+  const chain = [primary, ...VISION_MODEL_FALLBACKS.filter((m) => m !== primary)];
+
+  const descriptions: FrameDescription[] = [];
+  const usages: TokenUsage[] = [];
+
+  for (const model of chain) {
+    const coveredTimes = new Set(descriptions.map((d) => d.time));
+    const missing = frames.filter((f) => !coveredTimes.has(f.time));
+    if (missing.length === 0) break;
+
+    const result = await describeWithModel(missing, videoTitle, model, apiKey);
+    if (result) {
+      descriptions.push(...result.descriptions);
+      usages.push(...result.usage);
+      console.log(`[vision] ${model} 覆盖 ${result.descriptions.length}/${missing.length} 帧`);
+    } else {
+      console.log(`[vision] ${model} 全部批次失败，尝试降级模型`);
     }
   }
 
   if (descriptions.length === 0) {
-    console.log("[vision] 所有批次均失败，降级为音频-only");
+    console.log("[vision] 模型链全部失败，降级为音频-only");
     return null;
   }
+  if (descriptions.length < frames.length) {
+    console.log(`[vision] 模型链部分覆盖: ${descriptions.length}/${frames.length} 帧`);
+  }
 
-  // 汇总多批 usage
+  // 汇总多模型多批 usage
   const usage: TokenUsage | null = usages.length
     ? usages.reduce((acc, u) => ({
         promptTokens: acc.promptTokens + u.promptTokens,
