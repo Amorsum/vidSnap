@@ -164,6 +164,7 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 |------|------|---------|---------|------|
 | 2026-08-31 | 阶段 C | 关键帧视觉理解（多模态）：FFmpeg 均匀采样抽帧（确定性时间戳）→ 硅基流动 Qwen3-VL-32B 批量画面描述 → 与字幕按时间戳融合进总结（±5s 语义对齐、冲突以画面为准）；关键帧画廊点击跳转分段 + HMAC 签名帧图服务 + 2h 帧生命周期懒清理；视觉失败静默降级音频-only；E2E 真机验证通过（6 帧 / 902 tokens / ¥0.0017） | src/lib/keyframes.ts, vision.ts, api/frames/route.ts, process/route.ts | ✅ 已完成 |
 | 2026-08-31 | 阶段 C | 追问 Agent 化：callLLMToolLoop（DeepSeek function calling + Claude tool_use 双协议归一）三工具自主决策检索（语义/关键词/时间范围），轮数上限 + 重复调用终止 + 无工具终轮三重防死循环，前端可见工具轨迹；四类问题实测工具选择全对 | src/lib/llm.ts, api/followup/route.ts, prompts.ts, ChatPanel.tsx | ✅ 已完成 |
+| 2026-09-01 | 收尾 | tester 新一轮全量测试 44 条用例 43 通过 / 1 环境相关（新增 L 视觉理解 / M Agentic 追问模块），两个 bug 修复复验通过（断开零异常 / DELETE 缓存失效），报告存档 docs/test-reports/TEST-20260831.md | docs/test-reports/TEST-20260831.md, .claude/skills/test-suite/SKILL.md | ✅ 已完成 |
 | 2026-08-31 | 收尾 | 评测集 2→12 条（多类型多语言 + 1 条真实视频）+ 脚本 --only/归档/重试，全量重跑幻觉率 0.0% / 召回率 99.1%；修复客户端断开 uncaughtException 与 DELETE 缓存失效；test-suite 技能新增 L/M 模块（tester 新一轮测试报告待出） | scripts/eval/, docs/AI_CODING.md, .claude/ | ✅ 已完成 |
 | 2026-08-31 | 收尾 | update-plan 技能并入 git-push：提交前自动同步 README 现状 + 改进方案进展日志，删除 update-plan 技能目录，Stop 钩子提醒改指 /git-push | .claude/skills/git-push/SKILL.md, .claude/hooks/stop.sh, docs/AI_CODING.md | ✅ 已完成 |
 | 2026-08-31 | 收尾 | P0 简历可见性：README 大改版（mermaid 架构图 + AI 工程亮点 8 条 + 评测/成本数据 + 4 张真实界面截图）+ 仓库卫生（删 7 个调试残留脚本）+ 新增 docs/AI_CODING.md 多智能体工作流文档；tsc/build 验证通过 | README.md, docs/AI_CODING.md, docs/screenshots/, scripts/ | ✅ 已完成 |

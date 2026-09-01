@@ -96,7 +96,7 @@ flowchart TD
 
 ## 测试
 
-项目内置 `test-suite` 技能 + tester 测试专员（Claude Code 自动化测试工作流），最新一轮 **30/30 全通过**（2 项环境相关不计失败），详见 [docs/test-reports/TEST-20260830.md](docs/test-reports/TEST-20260830.md)。
+项目内置 `test-suite` 技能 + tester 测试专员（Claude Code 自动化测试工作流），最新一轮 **44 条用例 43 通过 / 1 环境相关**（含视觉理解 L 模块与 Agentic 追问 M 模块），详见 [docs/test-reports/TEST-20260831.md](docs/test-reports/TEST-20260831.md)。
 
 ## AI 协作开发
 
