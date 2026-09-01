@@ -315,8 +315,14 @@ export function stripToolSyntax(text: string): string {
   return text
     .replace(/<invoke[\s\S]*?<\/invoke>/g, "")
     .replace(/<tool_call[\s\S]*?<\/tool_call>/g, "")
+    .replace(/<function_call[\s\S]*?<\/function_call>/g, "")
     .replace(/<｜tool▁call▁begin｜>[\s\S]*?<｜tool▁call▁end｜>/g, "")
     .trim();
+}
+
+/** 检测文本是否残留任何「工具调用格式」痕迹（覆盖 invoke/tool_call/function_call/特殊分隔符等变体） */
+export function hasToolSyntax(text: string): boolean {
+  return /invoke|tool_call|function_call|<parameter|▁call▁|▁name▁|tool_code|<｜tool/.test(text);
 }
 
 /**
@@ -347,8 +353,25 @@ export async function callLLMToolLoop(opts: ToolLoopOptions): Promise<ToolLoopRe
 
   // 已出现过的工具调用签名集合：新一轮调用若全部命中历史签名（含交替循环），立即强制直接回答
   const seenSignatures = new Set<string>();
+  // 工具名计数：同一工具最多使用 2 次（换参数的反复重试是模型打转的信号）
+  const toolNameCounts = new Map<string, number>();
+  const maxTotalToolCalls = 4; // 总工具调用硬上限（并行调用也会突破轮数限制，必须全局封顶）
   let rounds = 0;
   let finalText = "";
+
+  /** 本轮调用是否属于「打转」（重复签名 / 同名超次 / 总次数超限）→ 强制直接回答 */
+  const isThrash = (newCalls: { name: string; signature: string }[]): boolean => {
+    if (newCalls.every((c) => seenSignatures.has(c.signature))) return true;
+    if (newCalls.every((c) => (toolNameCounts.get(c.name) ?? 0) >= 2)) return true;
+    if (toolsUsed.length + newCalls.length > maxTotalToolCalls) return true;
+    return false;
+  };
+  const recordCalls = (newCalls: { name: string; signature: string }[]): void => {
+    for (const c of newCalls) {
+      seenSignatures.add(c.signature);
+      toolNameCounts.set(c.name, (toolNameCounts.get(c.name) ?? 0) + 1);
+    }
+  };
 
   while (true) {
     if (config.provider === "deepseek") {
@@ -415,14 +438,17 @@ export async function callLLMToolLoop(opts: ToolLoopOptions): Promise<ToolLoopRe
         rounds = maxToolRounds + 1;
         continue;
       }
-      const newSignatures = toolCalls.map((c) => `${c.name}:${c.arguments}`);
-      if (newSignatures.every((s) => seenSignatures.has(s))) {
-        // 全部是历史出现过的调用（连续重复或交替循环）：强制直接回答
+      const newCalls = toolCalls.map((c) => ({
+        name: c.name,
+        signature: `${c.name}:${c.arguments}`,
+      }));
+      if (isThrash(newCalls)) {
+        // 重复/交替/同名超次/总次数超限：强制直接回答
         conversation.push({ role: "user", content: FORCE_ANSWER_MESSAGE });
         rounds = maxToolRounds + 1;
         continue;
       }
-      newSignatures.forEach((s) => seenSignatures.add(s));
+      recordCalls(newCalls);
 
       // 执行工具并回填结果
       conversation.push({
@@ -503,15 +529,18 @@ export async function callLLMToolLoop(opts: ToolLoopOptions): Promise<ToolLoopRe
         rounds = maxToolRounds + 1;
         continue;
       }
-      const newSignatures: string[] = toolUses.map(
-        (tu: { name?: string; input?: unknown }) => `${tu.name}:${JSON.stringify(tu.input)}`
+      const newCalls = toolUses.map(
+        (tu: { name?: string; input?: unknown }) => ({
+          name: tu.name || "",
+          signature: `${tu.name}:${JSON.stringify(tu.input)}`,
+        })
       );
-      if (newSignatures.every((s) => seenSignatures.has(s))) {
+      if (isThrash(newCalls)) {
         conversation.push({ role: "user", content: FORCE_ANSWER_MESSAGE });
         rounds = maxToolRounds + 1;
         continue;
       }
-      newSignatures.forEach((s) => seenSignatures.add(s));
+      recordCalls(newCalls);
 
       conversation.push({ role: "assistant", content: contentBlocks });
       for (const tu of toolUses) {
@@ -536,7 +565,11 @@ export async function callLLMToolLoop(opts: ToolLoopOptions): Promise<ToolLoopRe
   }
 
   if (opts.onUsage && totalUsage) opts.onUsage(totalUsage);
-  // 最终文本再清洗一遍伪工具调用格式，避免「invoke 乱码」直达用户
+  // 最终文本再清洗一遍伪工具调用格式，避免「invoke 乱码」直达用户；
+  // 清洗后仍有任何工具格式痕迹（未覆盖的变体）→ 整段替换为兜底文案
   const cleaned = stripToolSyntax(finalText);
-  return { text: cleaned, toolsUsed, usage: totalUsage };
+  const text = hasToolSyntax(cleaned)
+    ? "抱歉，这个问题我没能很好地组织回答，请换个问法试试。"
+    : cleaned;
+  return { text, toolsUsed, usage: totalUsage };
 }
