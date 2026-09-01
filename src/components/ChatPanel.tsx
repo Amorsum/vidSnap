@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 
 export interface Turn {
   id: number;
@@ -20,14 +20,14 @@ const EXAMPLES = [
   "视频里提到的核心方法是什么？",
 ];
 
-// [MM:SS] 或 [H:MM:SS] 时间戳引用
-const TIMESTAMP_PATTERN = /(\[[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?\])/;
+// 行内元素：时间戳引用 [MM:SS]（蓝色胶囊）| **加粗** | `行内代码`
+const INLINE_PATTERN = /(\[[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?\])|(\*\*[^*]+\*\*)|(`[^`]+`)/g;
 
-/** 渲染回答文本，高亮 [MM:SS] 时间戳引用（蓝色胶囊） */
-function renderAnswer(text: string) {
-  // split 带捕获组时奇数下标即命中的时间戳，单遍解析无需二次正则
-  return text.split(TIMESTAMP_PATTERN).map((part, i) => {
-    if (i % 2 === 1) {
+/** 渲染行内元素（时间戳胶囊 + 加粗 + 行内代码），split 带捕获组单遍解析 */
+function renderInline(text: string) {
+  return text.split(INLINE_PATTERN).map((part, i) => {
+    if (!part) return null;
+    if (/^\[[0-9]/.test(part)) {
       return (
         <span
           key={i}
@@ -37,8 +37,111 @@ function renderAnswer(text: string) {
         </span>
       );
     }
+    if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+      return (
+        <strong key={i} className="font-semibold">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
+      return (
+        <code key={i} className="rounded bg-[#e5e6eb] px-1 font-mono text-[12px] text-[#1d2129]">
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
     return <span key={i}>{part}</span>;
   });
+}
+
+/** 轻量 Markdown 渲染：分隔线 / 无序列表 / 有序列表 / 标题 / 段落（零依赖，覆盖模型常见输出形态） */
+function renderAnswer(text: string) {
+  const lines = text.split("\n");
+  const blocks: ReactNode[] = [];
+  let listItems: ReactNode[] = [];
+  let listType: "ul" | "ol" | null = null;
+
+  const flushList = () => {
+    if (listItems.length > 0) {
+      const items = listItems;
+      blocks.push(
+        listType === "ol" ? (
+          <ol key={blocks.length} className="list-decimal space-y-1 pl-4">
+            {items}
+          </ol>
+        ) : (
+          <ul key={blocks.length} className="space-y-1">
+            {items}
+          </ul>
+        )
+      );
+      listItems = [];
+      listType = null;
+    }
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushList();
+      continue;
+    }
+    // 分隔线
+    if (/^-{3,}$/.test(trimmed)) {
+      flushList();
+      blocks.push(<hr key={blocks.length} className="my-2 border-[#e5e6eb]" />);
+      continue;
+    }
+    // 标题
+    const headMatch = trimmed.match(/^#{1,4}\s+(.+)$/);
+    if (headMatch) {
+      flushList();
+      blocks.push(
+        <p key={blocks.length} className="font-semibold text-[#1d2129]">
+          {renderInline(headMatch[1])}
+        </p>
+      );
+      continue;
+    }
+    // 无序列表
+    const ulMatch = trimmed.match(/^[-*]\s+(.+)$/);
+    if (ulMatch) {
+      if (listType !== "ul") {
+        flushList();
+        listType = "ul";
+      }
+      listItems.push(
+        <li key={listItems.length} className="flex items-start gap-2">
+          <span className="mt-[7px] h-1 w-1 flex-shrink-0 rounded-full bg-[#86909c]" />
+          <span>{renderInline(ulMatch[1])}</span>
+        </li>
+      );
+      continue;
+    }
+    // 有序列表
+    const olMatch = trimmed.match(/^\d+[.、]\s*(.+)$/);
+    if (olMatch) {
+      if (listType !== "ol") {
+        flushList();
+        listType = "ol";
+      }
+      listItems.push(
+        <li key={listItems.length}>
+          <span>{renderInline(olMatch[1])}</span>
+        </li>
+      );
+      continue;
+    }
+    // 段落
+    flushList();
+    blocks.push(
+      <p key={blocks.length}>{renderInline(trimmed)}</p>
+    );
+  }
+  flushList();
+
+  return <div className="space-y-1.5">{blocks}</div>;
 }
 
 interface TurnItemProps {
@@ -55,7 +158,7 @@ const TurnItem = memo(function TurnItem({ turn }: TurnItemProps) {
           <p className="text-sm text-white">{turn.question}</p>
         </div>
       </div>
-      {/* AI 回答：左对齐灰气泡 */}
+      {/* AI 回答：左对齐灰气泡（Markdown 渲染） */}
       {turn.answer && (
         <div className="flex justify-start">
           <div className="max-w-[90%] rounded-[10px] rounded-bl-sm bg-[#f2f3f5] px-3.5 py-2.5">
@@ -64,7 +167,7 @@ const TurnItem = memo(function TurnItem({ turn }: TurnItemProps) {
                 🔧 {turn.toolsUsed.join(" → ")}
               </p>
             )}
-            <p className="text-sm leading-relaxed text-[#1d2129]">{renderAnswer(turn.answer)}</p>
+            <div className="text-sm leading-relaxed text-[#1d2129]">{renderAnswer(turn.answer)}</div>
           </div>
         </div>
       )}

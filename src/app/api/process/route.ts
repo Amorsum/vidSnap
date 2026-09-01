@@ -195,7 +195,23 @@ ${transcriptText}${visionBlock ? `\n\n${visionBlock}` : ""}`;
   // 生成 embedding（失败降级，不影响主流程）
   const transcriptEmbeddings = await tryEmbedSegments(transcript.segments);
 
-  saveTranscript(info.id, transcript.segments, info, transcriptEmbeddings);
+  // 关键帧视觉描述作为【画面】伪段落存入追问库（带 embedding），
+  // 追问三工具可检索画面信息，支持「画面里有什么/这个人是谁」类问题
+  const visionSegments = (vision?.descriptions ?? []).map((d) => ({
+    start: d.time,
+    end: d.time + 1,
+    text: `【画面】${d.description}`,
+  }));
+  const visionEmbeddings = visionSegments.length > 0 ? await tryEmbedSegments(visionSegments) : undefined;
+
+  const combinedSegments = [...transcript.segments, ...visionSegments];
+  const combinedEmbeddings = combinedSegments.map((_, i) =>
+    i < transcript.segments.length
+      ? transcriptEmbeddings?.[i]
+      : visionEmbeddings?.[i - transcript.segments.length]
+  );
+
+  saveTranscript(info.id, combinedSegments, info, combinedEmbeddings);
   cacheResult(info.id, {
     video: info,
     transcriptSource: transcript.source,

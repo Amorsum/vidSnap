@@ -36,7 +36,7 @@ export function saveTranscript(
   videoId: string,
   segments: { start: number; end: number; text: string }[],
   videoInfo: VideoInfo,
-  embeddings?: number[][]
+  embeddings?: (number[] | undefined)[]
 ): void {
   const storedSegments: StoredSegment[] = segments.map((seg, i) => ({
     ...seg,
