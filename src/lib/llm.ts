@@ -307,7 +307,17 @@ interface ToolLoopOptions {
   onUsage?: (usage: TokenUsage) => void;
 }
 
-const FORCE_ANSWER_MESSAGE = "请基于已检索到的信息直接回答用户的问题，不要再调用任何工具。";
+const FORCE_ANSWER_MESSAGE =
+  "请基于已检索到的信息直接回答用户的问题，不要再调用任何工具。直接输出回答内容本身，禁止输出任何工具调用格式（如 invoke、tool_call、XML 标签等）。";
+
+/** 清洗模型「模仿工具调用格式」输出的伪调用文本（DeepSeek 在工具消息堆里偶发） */
+export function stripToolSyntax(text: string): string {
+  return text
+    .replace(/<invoke[\s\S]*?<\/invoke>/g, "")
+    .replace(/<tool_call[\s\S]*?<\/tool_call>/g, "")
+    .replace(/<｜tool▁call▁begin｜>[\s\S]*?<｜tool▁call▁end｜>/g, "")
+    .trim();
+}
 
 /**
  * 让模型自主决定是否/如何调用工具的多轮循环（追问 Agent 化）
@@ -335,7 +345,8 @@ export async function callLLMToolLoop(opts: ToolLoopOptions): Promise<ToolLoopRe
     content: m.content,
   }));
 
-  let lastSignature: string | null = null;
+  // 已出现过的工具调用签名集合：新一轮调用若全部命中历史签名（含交替循环），立即强制直接回答
+  const seenSignatures = new Set<string>();
   let rounds = 0;
   let finalText = "";
 
@@ -404,15 +415,14 @@ export async function callLLMToolLoop(opts: ToolLoopOptions): Promise<ToolLoopRe
         rounds = maxToolRounds + 1;
         continue;
       }
-      const signature = toolCalls.map((c) => `${c.name}:${c.arguments}`).sort().join("|");
-      if (signature === lastSignature) {
-        // 与上一轮调用完全相同（死循环）：强制直接回答
+      const newSignatures = toolCalls.map((c) => `${c.name}:${c.arguments}`);
+      if (newSignatures.every((s) => seenSignatures.has(s))) {
+        // 全部是历史出现过的调用（连续重复或交替循环）：强制直接回答
         conversation.push({ role: "user", content: FORCE_ANSWER_MESSAGE });
-        lastSignature = signature;
         rounds = maxToolRounds + 1;
         continue;
       }
-      lastSignature = signature;
+      newSignatures.forEach((s) => seenSignatures.add(s));
 
       // 执行工具并回填结果
       conversation.push({
@@ -493,17 +503,15 @@ export async function callLLMToolLoop(opts: ToolLoopOptions): Promise<ToolLoopRe
         rounds = maxToolRounds + 1;
         continue;
       }
-      const signature = toolUses
-        .map((tu: { name?: string; input?: unknown }) => `${tu.name}:${JSON.stringify(tu.input)}`)
-        .sort()
-        .join("|");
-      if (signature === lastSignature) {
+      const newSignatures: string[] = toolUses.map(
+        (tu: { name?: string; input?: unknown }) => `${tu.name}:${JSON.stringify(tu.input)}`
+      );
+      if (newSignatures.every((s) => seenSignatures.has(s))) {
         conversation.push({ role: "user", content: FORCE_ANSWER_MESSAGE });
-        lastSignature = signature;
         rounds = maxToolRounds + 1;
         continue;
       }
-      lastSignature = signature;
+      newSignatures.forEach((s) => seenSignatures.add(s));
 
       conversation.push({ role: "assistant", content: contentBlocks });
       for (const tu of toolUses) {
@@ -528,5 +536,7 @@ export async function callLLMToolLoop(opts: ToolLoopOptions): Promise<ToolLoopRe
   }
 
   if (opts.onUsage && totalUsage) opts.onUsage(totalUsage);
-  return { text: finalText, toolsUsed, usage: totalUsage };
+  // 最终文本再清洗一遍伪工具调用格式，避免「invoke 乱码」直达用户
+  const cleaned = stripToolSyntax(finalText);
+  return { text: cleaned, toolsUsed, usage: totalUsage };
 }

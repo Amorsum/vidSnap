@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTranscript, type StoredSegment } from "@/lib/transcript-store";
 import { getConversation, saveTurn } from "@/lib/conversation-store";
-import { callLLMToolLoop, type ToolDefinition, type ToolCall } from "@/lib/llm";
+import { callLLMToolLoop, stripToolSyntax, type ToolDefinition, type ToolCall } from "@/lib/llm";
 import { FOLLOWUP_SYSTEM_PROMPT, formatTranscriptForPrompt } from "@/lib/prompts";
 import { embedQuery } from "@/lib/embeddings";
 import { searchByEmbedding, searchByKeyword } from "@/lib/rag";
@@ -181,6 +181,10 @@ export async function POST(request: NextRequest) {
         { success: false, error: "追问生成失败，请稍后重试" },
         { status: 500 }
       );
+    }
+    // 双保险：模型输出的伪工具调用格式若未被清洗干净，兜底替换为友好提示
+    if (/<invoke|<tool_call|<｜tool▁call▁begin｜/.test(stripToolSyntax(result.text))) {
+      result.text = "抱歉，这个问题我没能很好地组织回答，请换个问法试试。";
     }
 
     if (result.usage) {

@@ -162,6 +162,7 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-09-01 | 修复 | 追问乱码修复：模型交替换工具绕过防死循环守卫 + 强制收尾轮输出伪工具调用格式（invoke 乱码）——已见签名集合守卫拦交替循环 + 伪调用文本清洗 + prompt 工具纪律收紧 + 路由双保险兜底；真实问题实测干净回答（工具 6 次→3 次封顶） | src/lib/llm.ts, prompts.ts, api/followup/route.ts | ✅ 已完成 |
 | 2026-08-31 | 阶段 C | 关键帧视觉理解（多模态）：FFmpeg 均匀采样抽帧（确定性时间戳）→ 硅基流动 Qwen3-VL-32B 批量画面描述 → 与字幕按时间戳融合进总结（±5s 语义对齐、冲突以画面为准）；关键帧画廊点击跳转分段 + HMAC 签名帧图服务 + 2h 帧生命周期懒清理；视觉失败静默降级音频-only；E2E 真机验证通过（6 帧 / 902 tokens / ¥0.0017） | src/lib/keyframes.ts, vision.ts, api/frames/route.ts, process/route.ts | ✅ 已完成 |
 | 2026-08-31 | 阶段 C | 追问 Agent 化：callLLMToolLoop（DeepSeek function calling + Claude tool_use 双协议归一）三工具自主决策检索（语义/关键词/时间范围），轮数上限 + 重复调用终止 + 无工具终轮三重防死循环，前端可见工具轨迹；四类问题实测工具选择全对 | src/lib/llm.ts, api/followup/route.ts, prompts.ts, ChatPanel.tsx | ✅ 已完成 |
 | 2026-09-01 | 收尾 | tester 新一轮全量测试 44 条用例 43 通过 / 1 环境相关（新增 L 视觉理解 / M Agentic 追问模块），两个 bug 修复复验通过（断开零异常 / DELETE 缓存失效），报告存档 docs/test-reports/TEST-20260831.md | docs/test-reports/TEST-20260831.md, .claude/skills/test-suite/SKILL.md | ✅ 已完成 |
