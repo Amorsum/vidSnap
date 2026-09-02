@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">VidSnap</title>
+  <defs>
+    <linearGradient id="vidsnap-gradient" x1="9" y1="7" x2="55" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#776DFF"/>
+      <stop offset="1" stop-color="#5147DE"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="18" fill="url(#vidsnap-gradient)"/>
+  <path d="M15.5 25V18.5a3 3 0 0 1 3-3H25M39 48.5h6.5a3 3 0 0 0 3-3V39" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" opacity=".58"/>
+  <path d="M26.1 21.9c-2.2-1.4-5.1.2-5.1 2.9v14.4c0 2.7 2.9 4.3 5.1 2.9l12.1-7.2c2.2-1.3 2.2-4.5 0-5.8l-12.1-7.2Z" fill="#FFFFFF"/>
+  <circle cx="47.5" cy="16.5" r="3" fill="#BDF5E5"/>
+</svg>

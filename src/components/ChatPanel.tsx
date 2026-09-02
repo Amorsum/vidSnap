@@ -1,4 +1,5 @@
 import { memo, type ReactNode } from "react";
+import Icon from "./Icon";
 
 export interface Turn {
   id: number;
@@ -31,7 +32,7 @@ function renderInline(text: string) {
       return (
         <span
           key={i}
-          className="mx-0.5 rounded-md bg-[#e8f3ff] px-1 font-mono text-[11px] text-[#165dff]"
+          className="mx-0.5 rounded-md bg-brand-soft px-1.5 py-0.5 font-mono text-[10px] font-semibold text-brand"
         >
           {part}
         </span>
@@ -46,7 +47,7 @@ function renderInline(text: string) {
     }
     if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
       return (
-        <code key={i} className="rounded bg-[#e5e6eb] px-1 font-mono text-[12px] text-[#1d2129]">
+        <code key={i} className="rounded bg-surface-soft px-1 font-mono text-[12px] text-ink">
           {part.slice(1, -1)}
         </code>
       );
@@ -90,7 +91,7 @@ function renderAnswer(text: string) {
     // 分隔线
     if (/^-{3,}$/.test(trimmed)) {
       flushList();
-      blocks.push(<hr key={blocks.length} className="my-2 border-[#e5e6eb]" />);
+      blocks.push(<hr key={blocks.length} className="my-2 border-line" />);
       continue;
     }
     // 标题
@@ -98,7 +99,7 @@ function renderAnswer(text: string) {
     if (headMatch) {
       flushList();
       blocks.push(
-        <p key={blocks.length} className="font-semibold text-[#1d2129]">
+        <p key={blocks.length} className="font-semibold text-ink">
           {renderInline(headMatch[1])}
         </p>
       );
@@ -113,7 +114,7 @@ function renderAnswer(text: string) {
       }
       listItems.push(
         <li key={listItems.length} className="flex items-start gap-2">
-          <span className="mt-[7px] h-1 w-1 flex-shrink-0 rounded-full bg-[#86909c]" />
+          <span className="mt-[7px] h-1 w-1 flex-shrink-0 rounded-full bg-brand/60" />
           <span>{renderInline(ulMatch[1])}</span>
         </li>
       );
@@ -151,23 +152,21 @@ interface TurnItemProps {
 // memo：追问 loading 等父级状态变化时，未更新的历史问答不重渲染（含正则拆分）
 const TurnItem = memo(function TurnItem({ turn }: TurnItemProps) {
   return (
-    <div className="space-y-3">
-      {/* 用户问题：右对齐蓝色气泡 */}
+    <div className="space-y-3 animate-rise-in">
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-[10px] rounded-br-sm bg-[#165dff] px-3.5 py-2.5">
-          <p className="text-sm text-white">{turn.question}</p>
+        <div className="max-w-[88%] rounded-2xl rounded-br-md bg-brand px-3.5 py-2.5 shadow-[0_6px_16px_rgba(99,91,255,.16)]">
+          <p className="text-sm leading-6 text-white">{turn.question}</p>
         </div>
       </div>
-      {/* AI 回答：左对齐灰气泡（Markdown 渲染） */}
       {turn.answer && (
         <div className="flex justify-start">
-          <div className="max-w-[90%] rounded-[10px] rounded-bl-sm bg-[#f2f3f5] px-3.5 py-2.5">
+          <div className="max-w-[94%] rounded-2xl rounded-bl-md border border-line/70 bg-surface-soft/70 px-3.5 py-3">
             {turn.toolsUsed && turn.toolsUsed.length > 0 && (
-              <p className="mb-1 font-mono text-[10px] text-[#86909c]">
-                🔧 {turn.toolsUsed.join(" → ")}
-              </p>
+              <div className="mb-2 flex items-center gap-1.5 text-[10px] text-faint">
+                <Icon name="search" size={11} /> <span className="font-mono">{turn.toolsUsed.join(" → ")}</span>
+              </div>
             )}
-            <div className="text-sm leading-relaxed text-[#1d2129]">{renderAnswer(turn.answer)}</div>
+            <div className="text-sm leading-6 text-[#36384c]">{renderAnswer(turn.answer)}</div>
           </div>
         </div>
       )}
@@ -178,26 +177,37 @@ const TurnItem = memo(function TurnItem({ turn }: TurnItemProps) {
 export default function ChatPanel({ conversation, followUpLoading, onExample }: ChatPanelProps) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="mb-3 flex items-center gap-2">
-        <span className="text-lg">💬</span>
-        <h3 className="text-sm font-semibold text-[#1d2129]">追问对话</h3>
+      <div className="mb-4 flex items-center gap-3 border-b border-line/80 pb-4">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-soft text-brand">
+          <Icon name="message" size={17} />
+        </div>
+        <div>
+          <h2 className="text-sm font-bold text-ink">视频 Agent</h2>
+          <p className="mt-0.5 text-[10px] text-muted">询问细节、观点或特定时刻</p>
+        </div>
+        <div className="ml-auto flex items-center gap-1.5 rounded-full bg-[#eef9f5] px-2 py-1 text-[9px] font-semibold text-[#2c8f73]">
+          <span className="h-1.5 w-1.5 rounded-full bg-[#48bd9a]" /> 已就绪
+        </div>
       </div>
-      <div className="flex-1 space-y-4 overflow-y-auto pr-1">
-        {/* 空状态 */}
+      <div className="flex-1 space-y-5 overflow-y-auto pr-1" aria-live="polite">
         {conversation.length === 0 && !followUpLoading && (
-          <div className="flex h-full flex-col items-center justify-center py-10 text-center">
-            <span className="text-3xl">💬</span>
-            <p className="mt-3 text-sm text-[#86909c]">还没有追问</p>
-            <p className="mt-1 text-xs text-[#c9cdd4]">针对视频细节提问，试试：</p>
-            <div className="mt-4 flex flex-wrap justify-center gap-2">
+          <div className="flex h-full min-h-80 flex-col items-center justify-center py-8 text-center">
+            <div className="relative flex h-16 w-16 items-center justify-center rounded-[22px] bg-gradient-to-br from-brand-soft to-[#f6f5ff] text-brand">
+              <Icon name="wand" size={25} />
+              <span className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-[#24263c] text-white"><Icon name="sparkles" size={11} /></span>
+            </div>
+            <p className="mt-5 text-sm font-semibold text-ink">还想知道什么？</p>
+            <p className="mt-1.5 max-w-56 text-xs leading-5 text-muted">Agent 已阅读完整字幕和关键画面，可以继续深挖视频细节。</p>
+            <div className="mt-5 flex w-full flex-col gap-2">
               {EXAMPLES.map((q) => (
                 <button
                   key={q}
                   onClick={() => onExample?.(q)}
                   disabled={followUpLoading}
-                  className="rounded-full border border-[#e5e6eb] bg-white px-3 py-1.5 text-xs text-[#4e5969] transition-colors hover:border-[#165dff] hover:text-[#165dff] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-[#e5e6eb] disabled:hover:text-[#4e5969]"
+                  className="group flex w-full items-center justify-between rounded-xl border border-line bg-white px-3.5 py-2.5 text-left text-xs text-muted transition-all hover:border-brand/25 hover:bg-brand-soft/30 hover:text-brand disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {q}
+                  <Icon name="chevron-right" size={13} className="shrink-0 text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-brand" />
                 </button>
               ))}
             </div>
@@ -208,14 +218,13 @@ export default function ChatPanel({ conversation, followUpLoading, onExample }: 
           <TurnItem key={turn.id} turn={turn} />
         ))}
 
-        {/* 正在输入 */}
         {followUpLoading && (
           <div className="flex justify-start">
-            <div className="flex items-center gap-1.5 rounded-[10px] rounded-bl-sm bg-[#f2f3f5] px-3.5 py-2.5">
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#86909c]" style={{ animationDelay: "0ms" }} />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#86909c]" style={{ animationDelay: "150ms" }} />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#86909c]" style={{ animationDelay: "300ms" }} />
-              <span className="ml-1 text-xs text-[#86909c]">正在输入...</span>
+            <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-md border border-line/70 bg-surface-soft px-3.5 py-3">
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand" style={{ animationDelay: "0ms" }} />
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand" style={{ animationDelay: "150ms" }} />
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand" style={{ animationDelay: "300ms" }} />
+              <span className="ml-1 text-xs text-muted">Agent 正在检索视频...</span>
             </div>
           </div>
         )}

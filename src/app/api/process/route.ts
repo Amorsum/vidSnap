@@ -24,6 +24,30 @@ function sseEvent(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`;
 }
 
+/** 将底层命令错误转为可操作的用户提示，避免把整段 yt-dlp stderr 直接暴露到页面。 */
+function getUserFacingProcessError(error: unknown): string {
+  if (!(error instanceof Error)) return "处理失败，请稍后重试";
+
+  const message = error.message;
+  if (/WinError 10013|Failed to establish a new connection|Unable to download (?:webpage|API page)/i.test(message)) {
+    return "无法连接 YouTube，请检查服务器网络或代理设置后重试。";
+  }
+  if (/Sign in to confirm|cookies-from-browser|cookies\.txt|HTTP Error 403/i.test(message)) {
+    return "YouTube 要求登录验证，请更新服务器上的 cookies.txt 后重试。";
+  }
+  if (/Private video|Video unavailable|This video is unavailable/i.test(message)) {
+    return "该视频不可用或需要额外访问权限，请确认链接后重试。";
+  }
+  if (/ENOENT|not recognized as an internal|No such file or directory/i.test(message)) {
+    return "服务器未找到 yt-dlp，请检查安装和 PATH 配置。";
+  }
+  if (/timed?\s*out|ETIMEDOUT/i.test(message)) {
+    return "视频解析超时，请检查网络后重试。";
+  }
+
+  return "视频解析失败，请检查链接或稍后重试。";
+}
+
 // ─── 进度区间映射 ───
 // 0-20%: 下载
 // 20-60%: 转写（Whisper 上报 0-100 → 映射到 20-60）
@@ -390,8 +414,8 @@ export async function POST(request: NextRequest) {
             },
           });
         } catch (error: unknown) {
-          const message = error instanceof Error ? error.message : "处理失败，请稍后重试";
-          send({ type: "error", message });
+          console.error("[process] 视频处理失败:", error);
+          send({ type: "error", message: getUserFacingProcessError(error) });
           // 异常分支也要清理已下载的临时文件，防止磁盘泄漏
           if (info) {
             await cleanupTempFiles(info.id);

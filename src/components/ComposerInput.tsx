@@ -10,7 +10,7 @@ interface ComposerInputProps {
   onSubmit: (value: string) => void;
   isLoading: boolean;
   placeholder: string;
-  submitLabel: string;
+  submitLabel: React.ReactNode;
   /** 提交前对原始输入的处理（默认 trim；URLInput 用于从混杂文本提取链接） */
   transformValue?: (raw: string) => string;
   /** 输入框左侧图标 */
@@ -20,6 +20,9 @@ interface ComposerInputProps {
   buttonClassName?: string;
   /** 输入框下方的附加提示（如 URL 识别结果），返回 null 时不渲染 */
   hint?: (raw: string) => React.ReactNode;
+  ariaLabel?: string;
+  /** 提交后是否清空输入；视频链接需要保留，追问默认清空 */
+  clearOnSubmit?: boolean;
 }
 
 export default function ComposerInput({
@@ -33,19 +36,23 @@ export default function ComposerInput({
   inputClassName = "",
   buttonClassName = "",
   hint,
+  ariaLabel,
+  clearOnSubmit = true,
 }: ComposerInputProps) {
   const [value, setValue] = useState("");
 
   const handleSubmit = () => {
     if (!value.trim() || isLoading) return;
-    onSubmit((transformValue ?? ((raw: string) => raw.trim()))(value));
-    setValue("");
+    const transformedValue = (transformValue ?? ((raw: string) => raw.trim()))(value);
+    if (!transformedValue) return;
+    onSubmit(transformedValue);
+    if (clearOnSubmit) setValue("");
   };
 
   return (
     <div className={containerClassName}>
-      <div className="rounded-[10px] border border-[#e5e6eb] bg-white p-2 shadow-sm transition-colors focus-within:border-[#165dff]">
-        <div className="flex items-center gap-2 px-3">
+      <div className="surface-shadow rounded-2xl border border-line bg-white p-2 transition-all duration-300 focus-within:border-brand/50 focus-within:ring-4 focus-within:ring-brand/10">
+        <div className="flex items-center gap-2 pl-3">
           {leadingIcon}
           <input
             type="text"
@@ -56,12 +63,14 @@ export default function ComposerInput({
             }}
             placeholder={placeholder}
             disabled={isLoading}
-            className={`flex-1 bg-transparent text-[#1d2129] placeholder-[#c9cdd4] outline-none disabled:opacity-50 ${inputClassName}`}
+            aria-label={ariaLabel ?? placeholder}
+            className={`min-w-0 flex-1 bg-transparent text-ink placeholder:text-faint outline-none disabled:opacity-50 ${inputClassName}`}
           />
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={!value.trim() || isLoading}
-            className={`rounded-lg bg-[#165dff] text-sm text-white transition-colors hover:bg-[#4080ff] disabled:cursor-not-allowed disabled:bg-[#94bfff] ${buttonClassName}`}
+            className={`brand-shadow flex shrink-0 items-center justify-center rounded-xl bg-brand text-sm font-semibold text-white transition-all hover:-translate-y-0.5 hover:bg-brand-strong disabled:translate-y-0 disabled:cursor-not-allowed disabled:bg-[#b8b4ea] disabled:shadow-none ${buttonClassName}`}
           >
             {submitLabel}
           </button>
