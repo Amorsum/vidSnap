@@ -205,7 +205,6 @@ npm run dev
 - [x] 公网部署：Cloudflare Tunnel 内网穿透（本地生产模式 `npm run start`）
 - [x] 一键启动脚本：`start.bat`（Next.js 生产模式 + Cloudflare Tunnel）
 - [x] SSE 心跳机制：每 15 秒发送 heartbeat，防止 Cloudflare 隧道超时断开抖音长连接
-- [x] 初赛报名贴：`docs/初赛报名贴.md`（学习工作赛道）
 - [x] Phase 2 规划：Vercel 部署、Bilibili 支持、会员系统（已写入 PRODUCT_PLAN.md）
 - [x] 域名迁移：`amorsum.top` DNS 已从 DNSPod 迁移到 Cloudflare（进行中，待创建永久隧道）
 
@@ -244,4 +243,4 @@ npm run dev
 | 2026-07-14 | Demo MVP 完成：LLM 层改造（Claude → DeepSeek 通用层）、Whisper Python 脚本化、端到端测试验证通过。添加 vidSnap-context-updater skill。 |
 | 2026-07-15 | 重大更新：SenseVoice 云端 API 接入（src/lib/sensevoice.ts）实现双模转写；Whisper 改为 faster-whisper 常驻服务器（beam_size=5）；多语言策略从逐段检测改为 DeepSeek prompt 修复；新增 SSE 流式进度、process-cache 缓存、transcript-store 追问支持、URL 自动提取；简化 UI 移除鸡肋功能；全面更新 CONTEXT.md 反映当前状态。 |
 | 2026-07-15 | 部署折腾：Vercel 登录失败 → Netlify 部署（yt-dlp bot 检测 + 免费额度耗尽）→ 最终采用本地生产模式 + Cloudflare Tunnel 内网穿透。抖音下载改用 ffmpeg 直连（替代 yt-dlp 403）。修复前端按钮禁用 bug（Next.js dev mode 跨域阻止）。新增 start.bat 一键启动脚本、douyin-processor.ts、douyin_playwright.py。准备初赛提交材料。 |
-| 2026-07-16 | 稳定性修复：SSE 心跳机制（每 15 秒 heartbeat）防止 Cloudflare 隧道 100 秒超时断开抖音长连接。初赛报名贴撰写（docs/初赛报名贴.md）。Phase 2 规划写入 PRODUCT_PLAN.md（Vercel 部署、Bilibili、会员系统）。域名 amorsum.top DNS 从 DNSPod 迁移到 Cloudflare，准备永久隧道绑定。电源设置指导（关闭休眠/睡眠）。 |
+| 2026-07-16 | 稳定性修复：SSE 心跳机制（每 15 秒 heartbeat）防止 Cloudflare 隧道 100 秒超时断开抖音长连接。Phase 2 规划写入 PRODUCT_PLAN.md（Vercel 部署、Bilibili、会员系统）。域名 amorsum.top DNS 从 DNSPod 迁移到 Cloudflare，准备永久隧道绑定。电源设置指导（关闭休眠/睡眠）。 |
