@@ -6,9 +6,9 @@
 
 ## 演示
 
-| 首页 | 处理结果（真实视频） | 追问对话 |
+| 首页 | 视频理解工作台 | 移动端 |
 |------|------|------|
-| ![首页](docs/screenshots/home.png) | ![处理结果](docs/screenshots/result.png) | ![追问对话](docs/screenshots/chat.png) |
+| ![首页](docs/screenshots/home.png) | ![视频理解工作台](docs/screenshots/result.png) | ![移动端](docs/screenshots/mobile.png) |
 
 访问码门禁（公开部署的安全设计）：
 
@@ -20,6 +20,7 @@
 
 | 功能 | 说明 |
 |------|------|
+| 现代响应式工作台 | 聚焦链接输入、处理进度、关键帧画廊、时间线总结与 Video Agent 的一体化布局，兼顾桌面端与移动端体验 |
 | 一键视频总结 | 粘贴链接 → 自动下载 → 转写 → 输出结构化摘要（一句话总结 + 分段要点 + 时间戳） |
 | 关键帧视觉理解（多模态） | FFmpeg 均匀采样抽帧 → Qwen3-VL 视觉模型逐帧描述 → 与字幕按时间戳融合进总结，关键帧画廊可点击跳转分段 |
 | 追问对话（Agentic RAG） | 模型自主决策检索策略（语义/关键词/时间范围三工具 tool-calling），回答可溯源到秒级时间戳，前端可见工具调用轨迹 |
@@ -155,7 +156,8 @@ npm run dev
 │   └── hooks/                   # Stop 钩子 + 进度指纹
 ├── src/
 │   ├── app/
-│   │   ├── page.tsx             # 产品首页
+│   │   ├── icon.svg             # 品牌图标与浏览器页签图标
+│   │   ├── page.tsx             # 响应式首页与视频理解工作台
 │   │   └── api/
 │   │       ├── process/         # 视频处理管线（SSE 流式 + 视觉理解阶段）
 │   │       ├── followup/        # Agentic 追问（tool-calling）
