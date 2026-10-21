@@ -4,6 +4,7 @@ import os from "os";
 import path from "path";
 import fs from "fs/promises";
 import type { VideoInfo } from "./video-processor";
+import { parseVideoUrl } from "./url-utils";
 
 const execFileAsync = promisify(execFile);
 const TEMP_DIR = path.join(os.tmpdir(), "vidsnap");
@@ -29,6 +30,9 @@ export interface DouyinResult {
  * 用 Playwright 提取抖音视频信息（绕过 X-Bogus 签名）
  */
 export async function extractDouyinInfo(url: string): Promise<DouyinResult> {
+  const videoUrl = parseVideoUrl(url);
+  if (videoUrl?.platform !== "douyin") throw new Error("请提供有效的抖音视频链接");
+  url = videoUrl.url;
   const { stdout, stderr } = await execFileAsync("python", [PLAYWRIGHT_SCRIPT, url], {
     timeout: 60000,
   });
@@ -65,10 +69,11 @@ export async function extractDouyinInfo(url: string): Promise<DouyinResult> {
  * 提取信息并下载音频（无 memo 的直通版本，供旧流水线 extractTextFromVideo 使用）
  */
 export async function extractAndDownloadDouyinAudio(
-  url: string
+  url: string,
+  directory = TEMP_DIR,
 ): Promise<{ info: VideoInfo; audioPath: string }> {
   const { info, videoUrl } = await extractDouyinInfo(url);
-  const audioPath = await downloadDouyinAudio(videoUrl, info.id);
+  const audioPath = await downloadDouyinAudio(videoUrl, info.id, directory);
   return { info, audioPath };
 }
 
@@ -79,12 +84,13 @@ export async function extractAndDownloadDouyinAudio(
 export async function downloadDouyinVideoAndAudio(
   videoUrl: string,
   videoId: string,
-  keepVideo: boolean
+  keepVideo: boolean,
+  directory = TEMP_DIR,
 ): Promise<{ audioPath: string; videoPath: string | null }> {
-  await fs.mkdir(TEMP_DIR, { recursive: true });
+  await fs.mkdir(directory, { recursive: true });
 
-  const videoPath = path.join(TEMP_DIR, `${videoId}.mp4`);
-  const audioPath = path.join(TEMP_DIR, `${videoId}.m4a`);
+  const videoPath = path.join(directory, `${videoId}.mp4`);
+  const audioPath = path.join(directory, `${videoId}.m4a`);
 
   // 抖音直链 yt-dlp 无法下载（403），直接用 ffmpeg
   await execFileAsync("ffmpeg", [
@@ -117,7 +123,7 @@ export async function downloadDouyinVideoAndAudio(
 /**
  * 下载抖音视频，提取音频为 m4a（视频文件用完即删）
  */
-export async function downloadDouyinAudio(videoUrl: string, videoId: string): Promise<string> {
-  const { audioPath } = await downloadDouyinVideoAndAudio(videoUrl, videoId, false);
+export async function downloadDouyinAudio(videoUrl: string, videoId: string, directory = TEMP_DIR): Promise<string> {
+  const { audioPath } = await downloadDouyinVideoAndAudio(videoUrl, videoId, false, directory);
   return audioPath;
 }

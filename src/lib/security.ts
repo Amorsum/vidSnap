@@ -6,7 +6,7 @@
 
 const ACCESS_CODE = process.env.ACCESS_CODE;
 
-/** 提取客户端真实 IP：经 Cloudflare 隧道时远端地址是 127.0.0.1，需读转发头 */
+/** 读取部署代理传递的 IP；仅在源站入口受控且代理覆写这些头时可信。 */
 export function getClientIp(request: Request): string {
   const cf = request.headers.get("cf-connecting-ip");
   if (cf) return cf;
@@ -19,6 +19,24 @@ export function getClientIp(request: Request): string {
 export function verifyAccessCode(code: string | null): boolean {
   if (!ACCESS_CODE) return true;
   return code === ACCESS_CODE;
+}
+
+/** 所有媒体处理入口共用 process 桶，避免轮换历史接口绕过额度。 */
+export function guardApiRequest(request: Request, bucket: "process" | "followup" | "delete"): Response | null {
+  if (!verifyAccessCode(request.headers.get("x-access-code"))) {
+    return Response.json(
+      { success: false, error: "需要访问码，请向站长获取" },
+      { status: 401 }
+    );
+  }
+  const limit = checkRateLimit(`${bucket}:${getClientIp(request)}`, bucket === "process" ? 10 : 30, 10 * 60 * 1000);
+  if (!limit.allowed) {
+    return Response.json(
+      { success: false, error: `请求过于频繁，请 ${limit.retryAfterSec} 秒后再试` },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfterSec) } }
+    );
+  }
+  return null;
 }
 
 // ─── 每 IP 滑动窗口限流 ───

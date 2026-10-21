@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
   if (!rl.allowed) {
     return NextResponse.json(
       { success: false, error: `请求过于频繁，请 ${rl.retryAfterSec} 秒后再试` },
-      { status: 429 }
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } }
     );
   }
 

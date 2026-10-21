@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:security": "tsx --test tests/url-utils.test.ts tests/api-security.test.ts tests/media-workspace.test.ts tests/legacy-processing.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",

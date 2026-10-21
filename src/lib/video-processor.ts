@@ -4,7 +4,8 @@ import os from "os";
 import path from "path";
 import fs from "fs/promises";
 import { existsSync } from "fs";
-import { detectPlatform } from "./url-utils";
+import { detectPlatform, normalizeVideoUrl } from "./url-utils";
+import { withMediaWorkspace } from "./media-workspace";
 
 const execFileAsync = promisify(execFile);
 
@@ -80,6 +81,7 @@ async function getCommonYtDlpArgs(): Promise<string[]> {
  * 解析视频链接，提取视频元信息（支持 YouTube / 抖音 / 等 yt-dlp 兼容平台）
  */
 export async function extractVideoInfo(url: string): Promise<VideoInfo> {
+  url = normalizeVideoUrl(url);
   const args = [
     "--dump-json",
     "--no-playlist",
@@ -104,14 +106,15 @@ export async function extractVideoInfo(url: string): Promise<VideoInfo> {
  * 不再尝试下载字幕，统一使用 Whisper ASR 转写
  * info 可由调用方预先提取（如 tryDownloadSubtitles 已拿到），避免重复 --dump-json
  */
-export async function downloadAudio(url: string, preInfo?: VideoInfo): Promise<ProcessResult> {
+export async function downloadAudio(url: string, preInfo?: VideoInfo, directory = TEMP_DIR): Promise<ProcessResult> {
+  url = normalizeVideoUrl(url);
   await ensureTempDir();
 
   const platform = detectPlatform(url);
   if (platform === "youtube") {
     // YouTube 走 yt-dlp 流程
     const info = preInfo ?? (await extractVideoInfo(url));
-    const outputTemplate = path.join(TEMP_DIR, `${info.id}.%(ext)s`);
+    const outputTemplate = path.join(directory, `${info.id}.%(ext)s`);
 
     await execFileAsync(YT_DLP_PATH, [
       "-f", "bestaudio[ext=m4a]/bestaudio",
@@ -122,13 +125,13 @@ export async function downloadAudio(url: string, preInfo?: VideoInfo): Promise<P
       url,
     ]);
 
-    const audioPath = path.join(TEMP_DIR, `${info.id}.m4a`);
+    const audioPath = path.join(directory, `${info.id}.m4a`);
 
     return { info, audioPath, subtitlePath: null };
   } else {
     // Douyin 走 Playwright 提取流程（与 platforms.ts 共用同一实现）
     const { extractAndDownloadDouyinAudio } = await import("./douyin-processor");
-    const { info, audioPath } = await extractAndDownloadDouyinAudio(url);
+    const { info, audioPath } = await extractAndDownloadDouyinAudio(url, directory);
     return { info, audioPath, subtitlePath: null };
   }
 }
@@ -139,6 +142,7 @@ export async function downloadAudio(url: string, preInfo?: VideoInfo): Promise<P
  * 失败由调用方 catch 降级为音频-only，不阻塞主流程
  */
 export async function downloadLowResVideo(url: string, preInfo?: VideoInfo): Promise<string> {
+  url = normalizeVideoUrl(url);
   await ensureTempDir();
   const info = preInfo ?? (await extractVideoInfo(url));
   const outputTemplate = path.join(TEMP_DIR, `${info.id}-video.%(ext)s`);
@@ -170,6 +174,7 @@ export async function tryDownloadSubtitles(url: string, preInfo?: VideoInfo): Pr
   info: VideoInfo;
   subtitlePath: string | null;
 }> {
+  url = normalizeVideoUrl(url);
   await ensureTempDir();
   const info = preInfo ?? (await extractVideoInfo(url));
   const outputTemplate = path.join(TEMP_DIR, `${info.id}`);
@@ -234,30 +239,34 @@ export async function extractTextFromVideo(
   language: string;
   source: "subtitles" | "asr";
 }> {
-  const result = await downloadAudio(url);
+  url = normalizeVideoUrl(url);
+  const info = detectPlatform(url) === "youtube" ? await extractVideoInfo(url) : undefined;
+  return withMediaWorkspace(async (directory) => {
+    const result = await downloadAudio(url, info, directory);
 
-  // 如果有字幕，直接解析 VTT
-  if (result.subtitlePath) {
-    const vttContent = await fs.readFile(result.subtitlePath, "utf-8");
-    const { text, segments } = parseVTT(vttContent);
+    // 如果有字幕，直接解析 VTT
+    if (result.subtitlePath) {
+      const vttContent = await fs.readFile(result.subtitlePath, "utf-8");
+      const { text, segments } = parseVTT(vttContent);
+      return {
+        info: result.info,
+        text,
+        segments,
+        language: "auto",
+        source: "subtitles",
+      };
+    }
+
+    // 没有字幕，使用 Whisper ASR
+    const transcription = await transcribeAudioFn(result.audioPath);
     return {
       info: result.info,
-      text,
-      segments,
-      language: "auto",
-      source: "subtitles",
+      text: transcription.text,
+      segments: transcription.segments,
+      language: transcription.language,
+      source: "asr",
     };
-  }
-
-  // 没有字幕，使用 Whisper ASR
-  const transcription = await transcribeAudioFn(result.audioPath);
-  return {
-    info: result.info,
-    text: transcription.text,
-    segments: transcription.segments,
-    language: transcription.language,
-    source: "asr",
-  };
+  });
 }
 
 /**

@@ -4,6 +4,8 @@
 
 独立从 0 到 1 构建的 AI 视频理解应用，打通「链接解析 → 音视频下载 → 三级降级转写 → 关键帧视觉理解 → LLM 结构化总结 → Agentic RAG 追问」全链路，支持 YouTube / 抖音双平台。
 
+> **优化进展（2026-10-21）**：[完整优化方案](docs/OPTIMIZATION_PLAN.md) 已开始实施 M0：历史处理接口补齐访问码与共享限流，视频 URL 和请求类型严格校验，历史接口媒体使用独立临时目录并在成功/失败时清理。会话隔离、主流水线精确清理和重定向出站限制仍待完成。当前仍依赖个人电脑在线；云端转写时间戳为估算，主总结的 Claude 流式切换尚不完整。
+
 ## 演示
 
 | 首页 | 视频理解工作台 | 移动端 |
@@ -131,6 +133,23 @@ npm run dev
 
 外部依赖：yt-dlp（PATH 中或项目根目录）、FFmpeg、Python 3.12+（本地 Whisper 降级用，`pip install faster-whisper`）。
 
+## 开发与验证
+
+使用 `demo` 作为日常开发分支，`main` 作为主分支。功能验证通过并经确认后再发布到主分支；提交和推送前先概述改动并获得确认，不自动同步两个分支。现有 `master` 保留历史 B 站实现，供后续查阅，本轮不合入、不删除，也不为常规优化额外创建分支。
+
+```bash
+npm run lint
+npx tsc --noEmit
+npm run test:security
+npm run build
+```
+
+`test:security` 使用独立测试进程、限流桶、模拟媒体/模型响应和真实临时目录，覆盖接口保护、输入边界与历史接口文件清理，不需要真实密钥或付费调用。当前未提供 `npm test`。已有生产服务运行时，在独立项目副本执行构建，避免改写服务使用的 `.next`。
+
+视频入口接受 YouTube 的 watch、youtu.be、shorts、embed、v 视频链接，以及抖音 `/video/<数字 ID>` 和 `v.douyin.com` 短链接；拒绝用户主页、异常端口、userinfo 和伪造域名。服务端移除分享参数后再处理。主处理及两个历史处理接口共用每 IP 10 次/10 分钟额度；追问与删除各为 30 次/10 分钟，429 返回 `Retry-After`。代理 IP 头仅在受控源站入口和代理覆写条件下可信。
+
+两个历史接口 `/api/process/summarize`、`/api/process/transcribe` 保留现有 JSON 响应；仓库内未发现调用方，先做兼容保护，后续再明确停用策略。主接口仍使用原 SSE 协议。
+
 ## 部署（Cloudflare Tunnel）
 
 `cloudflared.exe` 客户端**不随仓库分发**（二进制约 54MB），需自行下载：
@@ -148,6 +167,7 @@ npm run dev
 │   ├── CONTEXT.md               # AI 助手项目上下文
 │   ├── AI_CODING.md             # AI 协作开发工作流（多智能体体系）
 │   ├── IMPROVEMENT_PLAN.md      # 改进方案与执行进展
+│   ├── OPTIMIZATION_PLAN.md     # 分阶段优化方案与 M0 当前进展
 │   ├── screenshots/             # 演示截图
 │   └── test-reports/            # 自动化测试报告
 ├── .claude/                     # Claude Code 多智能体工作流
@@ -172,6 +192,8 @@ npm run dev
 │       ├── embeddings.ts        # bge-m3 embedding 封装
 │       ├── observability.ts     # token 用量 + 成本核算（含视觉计价）
 │       ├── security.ts          # 访问码 + 滑动窗口限流
+│       ├── request-validation.ts# JSON、视频 ID 和问题的运行时校验
+│       ├── media-workspace.ts   # 历史接口独立媒体目录与 finally 清理
 │       ├── platforms.ts         # 平台处理器注册
 │       ├── transcriber.ts       # 转写调度（三级降级）
 │       ├── sensevoice.ts        # SenseVoice 云端 API
@@ -182,6 +204,7 @@ npm run dev
 │       ├── transcript-store.ts  # 原文 + embedding 存储（追问用）
 │       ├── conversation-store.ts# 多轮对话历史
 │       └── url-utils.ts         # URL 解析与平台检测
+├── tests/                       # 无付费依赖的安全与历史接口回归
 └── scripts/
     ├── whisper_server.py        # Whisper 常驻服务器（消冷启动）
     ├── whisper_asr.py           # Whisper 降级脚本

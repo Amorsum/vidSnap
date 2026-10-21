@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cleanupTempFiles, type VideoInfo, type ProcessResult } from "@/lib/video-processor";
 import { getTranscript, parseBuiltinSubtitle, type TranscriptResult } from "@/lib/transcriber";
 import { transcribeWithSenseVoice } from "@/lib/sensevoice";
-import { isValidUrl, UNSUPPORTED_PLATFORM_MESSAGE } from "@/lib/url-utils";
+import { parseVideoUrl, UNSUPPORTED_PLATFORM_MESSAGE } from "@/lib/url-utils";
 import { getProcessor } from "@/lib/platforms";
 import { callLLMStreaming } from "@/lib/llm";
 import type { TokenUsage } from "@/lib/llm";
@@ -12,7 +12,8 @@ import { tryEmbedSegments } from "@/lib/embeddings";
 import { getCachedResult, cacheResult, invalidateCache } from "@/lib/process-cache";
 import { saveTranscript, removeTranscript } from "@/lib/transcript-store";
 import { clearConversation } from "@/lib/conversation-store";
-import { verifyAccessCode, getClientIp, checkRateLimit } from "@/lib/security";
+import { guardApiRequest } from "@/lib/security";
+import { readJsonObject, isValidVideoId, RequestValidationError } from "@/lib/request-validation";
 import { extractKeyframes, scheduleFramesCleanup, sweepExpiredFrames, cleanupFrameFiles } from "@/lib/keyframes";
 import {
   isVisionEnabled, describeFrames, formatFramePrompt, signFrameToken,
@@ -252,35 +253,21 @@ ${transcriptText}${visionBlock ? `\n\n${visionBlock}` : ""}`;
 // ─── POST 处理器 ───
 
 export async function POST(request: NextRequest) {
+  const denied = guardApiRequest(request, "process");
+  if (denied) return denied;
   try {
-    const body = await request.json();
-    const { url } = body as { url?: string };
+    const { url: inputUrl } = await readJsonObject(request);
 
-    if (!url) {
+    if (!inputUrl) {
       return NextResponse.json({ success: false, error: "请提供视频链接" }, { status: 400 });
     }
 
-    if (!isValidUrl(url)) {
+    const videoUrl = parseVideoUrl(inputUrl);
+    if (!videoUrl) {
       return NextResponse.json({ success: false, error: UNSUPPORTED_PLATFORM_MESSAGE }, { status: 400 });
     }
 
-    // 访问码门禁
-    if (!verifyAccessCode(request.headers.get("x-access-code"))) {
-      return NextResponse.json(
-        { success: false, error: "需要访问码，请向站长获取" },
-        { status: 401 }
-      );
-    }
-
-    // 每 IP 限流：10 分钟最多 10 次处理（保护 API Key 不被刷爆）
-    const ip = getClientIp(request);
-    const rl = checkRateLimit(`process:${ip}`, 10, 10 * 60 * 1000);
-    if (!rl.allowed) {
-      return NextResponse.json(
-        { success: false, error: `请求过于频繁，请 ${rl.retryAfterSec} 秒后再试` },
-        { status: 429 }
-      );
-    }
+    const url = videoUrl.url;
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -444,16 +431,12 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  if (!verifyAccessCode(request.headers.get("x-access-code"))) {
-    return NextResponse.json(
-      { success: false, error: "需要访问码，请向站长获取" },
-      { status: 401 }
-    );
-  }
+  const denied = guardApiRequest(request, "delete");
+  if (denied) return denied;
   try {
-    const { videoId } = await request.json() as { videoId?: string };
-    if (!videoId) {
-      return NextResponse.json({ success: false, error: "请提供 videoId" }, { status: 400 });
+    const { videoId } = await readJsonObject(request);
+    if (!isValidVideoId(videoId)) {
+      return NextResponse.json({ success: false, error: "请提供合法的 videoId" }, { status: 400 });
     }
     await cleanupTempFiles(videoId);
     await cleanupFrameFiles(videoId);
@@ -463,7 +446,9 @@ export async function DELETE(request: NextRequest) {
     clearConversation(videoId);
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "清理失败";
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    if (error instanceof RequestValidationError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+    }
+    return NextResponse.json({ success: false, error: "清理失败，请稍后重试" }, { status: 500 });
   }
 }

@@ -1,21 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
-import { extractTextFromVideo, cleanupTempFiles } from "@/lib/video-processor";
+import { extractTextFromVideo } from "@/lib/video-processor";
 import { transcribeAudio } from "@/lib/whisper";
-import { detectPlatform } from "@/lib/url-utils";
+import { parseVideoUrl } from "@/lib/url-utils";
+import { guardApiRequest } from "@/lib/security";
+import { readJsonObject, RequestValidationError } from "@/lib/request-validation";
 
 export async function POST(request: NextRequest) {
+  const denied = guardApiRequest(request, "process");
+  if (denied) return denied;
   try {
-    const { url } = await request.json();
+    const { url } = await readJsonObject(request);
 
     if (!url) {
       return NextResponse.json({ error: "请提供视频链接" }, { status: 400 });
     }
 
-    if (detectPlatform(url) !== "youtube") {
+    const videoUrl = parseVideoUrl(url);
+    if (videoUrl?.platform !== "youtube") {
       return NextResponse.json({ error: "目前仅支持 YouTube 链接" }, { status: 400 });
     }
 
-    const result = await extractTextFromVideo(url, (audioPath) =>
+    const result = await extractTextFromVideo(videoUrl.url, (audioPath) =>
       transcribeAudio(audioPath)
     );
 
@@ -36,7 +41,9 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "转录失败";
-    return NextResponse.json({ error: message }, { status: 500 });
+    if (error instanceof RequestValidationError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    return NextResponse.json({ error: "转录失败，请检查链接或稍后重试" }, { status: 500 });
   }
 }

@@ -5,7 +5,8 @@ import { callLLMToolLoop, hasToolSyntax, type ToolDefinition, type ToolCall } fr
 import { FOLLOWUP_SYSTEM_PROMPT, formatTranscriptForPrompt } from "@/lib/prompts";
 import { embedQuery } from "@/lib/embeddings";
 import { searchByEmbedding, searchByKeyword } from "@/lib/rag";
-import { verifyAccessCode, getClientIp, checkRateLimit } from "@/lib/security";
+import { guardApiRequest } from "@/lib/security";
+import { readJsonObject, isValidVideoId, isValidQuestion, RequestValidationError } from "@/lib/request-validation";
 import { calcCost } from "@/lib/observability";
 
 /**
@@ -14,7 +15,7 @@ import { calcCost } from "@/lib/observability";
  * - keyword_search：专有名词/术语定位，关键词检索
  * - segment_range：明确时间位置问题，按时间范围取字幕
  */
-function buildTools(segments: StoredSegment[]): ToolDefinition[] {
+function buildTools(): ToolDefinition[] {
   return [
     {
       name: "semantic_search",
@@ -117,31 +118,14 @@ function mapSource(toolsUsed: string[]): "rag" | "keyword" | "range" | "full" {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = guardApiRequest(request, "followup");
+  if (denied) return denied;
   try {
-    // 访问码门禁
-    if (!verifyAccessCode(request.headers.get("x-access-code"))) {
-      return NextResponse.json(
-        { success: false, error: "需要访问码，请向站长获取" },
-        { status: 401 }
-      );
-    }
+    const { videoId, question } = await readJsonObject(request);
 
-    // 每 IP 限流：10 分钟最多 30 次追问
-    const ip = getClientIp(request);
-    const rl = checkRateLimit(`followup:${ip}`, 30, 10 * 60 * 1000);
-    if (!rl.allowed) {
+    if (!isValidVideoId(videoId) || !isValidQuestion(question)) {
       return NextResponse.json(
-        { success: false, error: `请求过于频繁，请 ${rl.retryAfterSec} 秒后再试` },
-        { status: 429 }
-      );
-    }
-
-    const body = await request.json();
-    const { videoId, question } = body as { videoId?: string; question?: string };
-
-    if (!videoId || !question) {
-      return NextResponse.json(
-        { success: false, error: "请提供 videoId 和问题" },
+        { success: false, error: "请提供合法的 videoId 和非空问题（最多 4000 字符）" },
         { status: 400 }
       );
     }
@@ -170,7 +154,7 @@ export async function POST(request: NextRequest) {
     const result = await callLLMToolLoop({
       systemPrompt: FOLLOWUP_SYSTEM_PROMPT,
       messages,
-      tools: buildTools(stored.segments),
+      tools: buildTools(),
       executeTool: (call) => executeTool(call, stored.segments),
       maxToolRounds: 3,
       maxTokens: 1500,
@@ -203,6 +187,9 @@ export async function POST(request: NextRequest) {
       toolsUsed: result.toolsUsed,
     });
   } catch (error: unknown) {
+    if (error instanceof RequestValidationError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+    }
     const message = error instanceof Error ? error.message : "追问失败";
     return NextResponse.json(
       { success: false, error: message },
