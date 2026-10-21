@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
-import { TEMP_DIR, sweepExpiredFrames } from "@/lib/keyframes";
+import { validateAnalysisDirectory } from "@/lib/analysis-artifacts";
 import { verifyFrameToken } from "@/lib/vision";
 import { verifyAccessCode, getClientIp, checkRateLimit } from "@/lib/security";
+import { getSessionId } from "@/lib/session";
+import { getOwnedAnalysis, isAnalysisId } from "@/lib/analysis-store";
 
 /**
  * 关键帧图片服务：GET /api/frames?videoId=..&idx=..&token=..
@@ -21,16 +23,14 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // 懒清理过期帧文件（进程重启后定时器失效的兜底）
-  await sweepExpiredFrames();
-
   const { searchParams } = request.nextUrl;
   const videoId = searchParams.get("videoId") ?? "";
   const idxRaw = searchParams.get("idx") ?? "";
   const token = searchParams.get("token") ?? "";
+  const analysisId = searchParams.get("analysisId") ?? undefined;
 
   // videoId 白名单校验（防路径穿越）
-  if (!/^[A-Za-z0-9_-]{1,64}$/.test(videoId)) {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(videoId) || (analysisId !== undefined && !isAnalysisId(analysisId))) {
     return NextResponse.json({ success: false, error: "非法的 videoId" }, { status: 400 });
   }
   const idx = Number(idxRaw);
@@ -39,7 +39,11 @@ export async function GET(request: NextRequest) {
   }
 
   // 鉴权：签名 token 优先，回退访问码 header
-  const tokenValid = token ? await verifyFrameToken(token, videoId, idx) : false;
+  const analysis = getOwnedAnalysis(getSessionId(request), videoId, analysisId);
+  if (!analysis || !analysis.framesExpireAt || analysis.framesExpireAt <= Date.now()) {
+    return NextResponse.json({ success: false, error: "关键帧不存在或已过期" }, { status: 404 });
+  }
+  const tokenValid = token ? await verifyFrameToken(token, analysis.id, idx) : false;
   const accessCodeValid = verifyAccessCode(request.headers.get("x-access-code"));
   if (!tokenValid && !accessCodeValid) {
     return NextResponse.json({ success: false, error: "需要访问码或有效签名" }, { status: 401 });
@@ -51,12 +55,18 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const buffer = await fs.readFile(path.join(TEMP_DIR, fileName));
+    const directory = await validateAnalysisDirectory(analysis.id, "frames");
+    const filePath = path.join(directory, fileName);
+    if ((await fs.lstat(filePath)).isSymbolicLink()) throw new Error("拒绝访问符号链接帧图");
+    const buffer = await fs.readFile(filePath);
+    if (getOwnedAnalysis(getSessionId(request), videoId, analysis.id) !== analysis || analysis.framesExpireAt <= Date.now()) {
+      return NextResponse.json({ success: false, error: "关键帧不存在或已过期" }, { status: 404 });
+    }
     return new Response(buffer, {
       headers: {
         "Content-Type": "image/jpeg",
         // 与帧文件 TTL 一致；private 避免共享缓存泄漏
-        "Cache-Control": "private, max-age=7200",
+        "Cache-Control": "private, no-store",
       },
     });
   } catch {

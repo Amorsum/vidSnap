@@ -73,7 +73,7 @@ async function directoryExists(directory: string) {
 function request() {
   return new NextRequest("http://localhost/api/legacy-test", {
     method: "POST",
-    headers: { "x-access-code": "legacy-regression-only", "cf-connecting-ip": `test-legacy-${++sequence}` },
+    headers: { "Content-Type": "application/json", "x-access-code": "legacy-regression-only", "cf-connecting-ip": `test-legacy-${++sequence}` },
     body: JSON.stringify({ url: `https://youtu.be/${videoId}?si=share` }),
   });
 }

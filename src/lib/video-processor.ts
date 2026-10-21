@@ -141,11 +141,11 @@ export async function downloadAudio(url: string, preInfo?: VideoInfo, directory 
  * 格式链三层回退（240p → 144p），尽量降低下载体积与耗时
  * 失败由调用方 catch 降级为音频-only，不阻塞主流程
  */
-export async function downloadLowResVideo(url: string, preInfo?: VideoInfo): Promise<string> {
+export async function downloadLowResVideo(url: string, preInfo?: VideoInfo, directory = TEMP_DIR): Promise<string> {
   url = normalizeVideoUrl(url);
   await ensureTempDir();
   const info = preInfo ?? (await extractVideoInfo(url));
-  const outputTemplate = path.join(TEMP_DIR, `${info.id}-video.%(ext)s`);
+  const outputTemplate = path.join(directory, `${info.id}-video.%(ext)s`);
 
   await execFileAsync(YT_DLP_PATH, [
     "-f", "best[height<=240]/bestvideo[height<=240]/best[height<=144]",
@@ -157,12 +157,12 @@ export async function downloadLowResVideo(url: string, preInfo?: VideoInfo): Pro
   ], { timeout: 120000 });
 
   // yt-dlp 实际扩展名可能为 mp4/webm/mkv，按前缀探测实际文件
-  const files = await fs.readdir(TEMP_DIR);
+  const files = await fs.readdir(directory);
   const videoFile = files.find((f) => f.startsWith(`${info.id}-video.`));
   if (!videoFile) {
     throw new Error("视频流下载后未找到文件");
   }
-  return path.join(TEMP_DIR, videoFile);
+  return path.join(directory, videoFile);
 }
 
 /**
@@ -170,14 +170,14 @@ export async function downloadLowResVideo(url: string, preInfo?: VideoInfo): Pro
  * 成功返回字幕文件路径，失败返回 null
  * info 可由调用方预先提取，避免重复 --dump-json
  */
-export async function tryDownloadSubtitles(url: string, preInfo?: VideoInfo): Promise<{
+export async function tryDownloadSubtitles(url: string, preInfo?: VideoInfo, directory = TEMP_DIR, assertActive?: () => void): Promise<{
   info: VideoInfo;
   subtitlePath: string | null;
 }> {
   url = normalizeVideoUrl(url);
   await ensureTempDir();
   const info = preInfo ?? (await extractVideoInfo(url));
-  const outputTemplate = path.join(TEMP_DIR, `${info.id}`);
+  const outputTemplate = path.join(directory, `${info.id}`);
 
   // 先尝试手动字幕，再尝试自动字幕
   // 扩大语言范围，提高命中率（命中 = 跳过 Whisper，省 10-60s）
@@ -187,6 +187,7 @@ export async function tryDownloadSubtitles(url: string, preInfo?: VideoInfo): Pr
   ];
 
   for (const strategy of subtitleStrategies) {
+    assertActive?.();
     try {
       await execFileAsync(YT_DLP_PATH, [
         "--skip-download",
@@ -198,19 +199,20 @@ export async function tryDownloadSubtitles(url: string, preInfo?: VideoInfo): Pr
         ...getCookieArgs(),
         url,
       ], { timeout: 30000 });
+      assertActive?.();
 
       // 检查是否下载了字幕文件
       const possiblePaths = [
-            path.join(TEMP_DIR, `${info.id}.zh-Hans.srt`),
-            path.join(TEMP_DIR, `${info.id}.zh-CN.srt`),
-            path.join(TEMP_DIR, `${info.id}.zh-TW.srt`),
-            path.join(TEMP_DIR, `${info.id}.zh.srt`),
-            path.join(TEMP_DIR, `${info.id}.en.srt`),
-            path.join(TEMP_DIR, `${info.id}.ja.srt`),
-            path.join(TEMP_DIR, `${info.id}.ko.srt`),
-            path.join(TEMP_DIR, `${info.id}.de.srt`),
-            path.join(TEMP_DIR, `${info.id}.fr.srt`),
-            path.join(TEMP_DIR, `${info.id}.es.srt`),
+            path.join(directory, `${info.id}.zh-Hans.srt`),
+            path.join(directory, `${info.id}.zh-CN.srt`),
+            path.join(directory, `${info.id}.zh-TW.srt`),
+            path.join(directory, `${info.id}.zh.srt`),
+            path.join(directory, `${info.id}.en.srt`),
+            path.join(directory, `${info.id}.ja.srt`),
+            path.join(directory, `${info.id}.ko.srt`),
+            path.join(directory, `${info.id}.de.srt`),
+            path.join(directory, `${info.id}.fr.srt`),
+            path.join(directory, `${info.id}.es.srt`),
           ];
       for (const p of possiblePaths) {
         if (existsSync(p)) {
@@ -218,6 +220,7 @@ export async function tryDownloadSubtitles(url: string, preInfo?: VideoInfo): Pr
         }
       }
     } catch {
+      assertActive?.();
       // 该策略失败，尝试下一个
       continue;
     }

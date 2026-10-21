@@ -16,6 +16,7 @@ export const TEMP_DIR = path.join(os.tmpdir(), "vidsnap");
 export const FRAME_TTL_MS = 2 * 60 * 60 * 1000;
 
 export interface Keyframe {
+  frameId: number;
   path: string;
   time: number; // 秒，帧中心时刻（均匀采样确定性计算）
 }
@@ -25,15 +26,16 @@ const cleanupTimers = new Map<string, NodeJS.Timeout>();
 // 懒清理节流：进程重启后 timer 丢失，靠 mtime 扫描兜底，10 分钟内只扫一次
 let lastSweep = 0;
 
-async function listFrameFiles(videoId: string): Promise<string[]> {
+async function listFrameFiles(videoId: string, directory = TEMP_DIR): Promise<string[]> {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(videoId)) throw new Error("非法的视频 ID");
   let files: string[];
   try {
-    files = await fs.readdir(TEMP_DIR);
+    files = await fs.readdir(directory);
   } catch {
     return [];
   }
   return files
-    .filter((f) => f.startsWith(`${videoId}-kf-`) && f.endsWith(".jpg"))
+    .filter((f) => new RegExp(`^${videoId}-kf-\\d{3}\\.jpg$`).test(f))
     .sort();
 }
 
@@ -45,12 +47,13 @@ export async function extractKeyframes(
   videoPath: string,
   videoId: string,
   duration: number,
-  cap = 8
+  cap = 8,
+  directory = TEMP_DIR,
 ): Promise<Keyframe[]> {
-  await fs.mkdir(TEMP_DIR, { recursive: true });
+  await fs.mkdir(directory, { recursive: true });
 
   const N = Math.max(1, Math.ceil(duration / cap));
-  const outputTemplate = path.join(TEMP_DIR, `${videoId}-kf-%03d.jpg`);
+  const outputTemplate = path.join(directory, `${videoId}-kf-%03d.jpg`);
 
   await execFileAsync("ffmpeg", [
     "-y",
@@ -61,16 +64,16 @@ export async function extractKeyframes(
     outputTemplate,
   ], { timeout: 120000 });
 
-  const files = await listFrameFiles(videoId);
+  const files = await listFrameFiles(videoId, directory);
   if (files.length === 0) {
     throw new Error("关键帧提取失败：未生成任何帧文件");
   }
 
   // 帧 i 的中心时刻（均匀采样间隔 N 秒）
-  return files.map((fileName, i) => ({
-    path: path.join(TEMP_DIR, fileName),
-    time: (i + 0.5) * N,
-  }));
+  return files.map((fileName) => {
+    const frameId = Number(fileName.slice(-7, -4));
+    return { frameId, path: path.join(directory, fileName), time: (frameId - 0.5) * N };
+  });
 }
 
 /**

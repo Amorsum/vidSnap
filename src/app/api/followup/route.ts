@@ -8,6 +8,8 @@ import { searchByEmbedding, searchByKeyword } from "@/lib/rag";
 import { guardApiRequest } from "@/lib/security";
 import { readJsonObject, isValidVideoId, isValidQuestion, RequestValidationError } from "@/lib/request-validation";
 import { calcCost } from "@/lib/observability";
+import { getSessionId } from "@/lib/session";
+import { getOwnedAnalysis, isAnalysisId } from "@/lib/analysis-store";
 
 /**
  * 追问 Agent 工具集：模型自主决定使用哪个检索工具（不再是固定管线）
@@ -121,17 +123,19 @@ export async function POST(request: NextRequest) {
   const denied = guardApiRequest(request, "followup");
   if (denied) return denied;
   try {
-    const { videoId, question } = await readJsonObject(request);
+    const { videoId, analysisId, question } = await readJsonObject(request);
 
-    if (!isValidVideoId(videoId) || !isValidQuestion(question)) {
+    if (!isValidVideoId(videoId) || !isValidQuestion(question) || (analysisId !== undefined && !isAnalysisId(analysisId))) {
       return NextResponse.json(
         { success: false, error: "请提供合法的 videoId 和非空问题（最多 4000 字符）" },
         { status: 400 }
       );
     }
 
-    const stored = getTranscript(videoId);
-    if (!stored) {
+    const ownerId = getSessionId(request);
+    const analysis = getOwnedAnalysis(ownerId, videoId, analysisId);
+    const stored = analysis ? getTranscript(analysis.id) : null;
+    if (!stored || !analysis) {
       return NextResponse.json(
         { success: false, error: "视频数据已过期，请重新处理视频" },
         { status: 404 }
@@ -139,7 +143,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 多轮上下文：取最近 3 轮对话，让模型理解指代
-    const history = getConversation(videoId, 3);
+    const history = getConversation(analysis.id, 3);
     const messages: { role: "user" | "assistant"; content: string }[] = [];
     for (const t of history) {
       messages.push({ role: "user", content: t.question });
@@ -177,12 +181,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    saveTurn(videoId, question, result.text);
+    if (getOwnedAnalysis(ownerId, videoId, analysis.id) !== analysis || getTranscript(analysis.id) !== stored) {
+      return NextResponse.json({ success: false, error: "分析已删除或过期，请重新处理视频" }, { status: 404 });
+    }
+    saveTurn(analysis.id, question, result.text, stored.expiresAt);
 
     return NextResponse.json({
       success: true,
       answer: result.text,
       videoId,
+      analysisId: analysis.id,
       retrievalSource: mapSource(result.toolsUsed),
       toolsUsed: result.toolsUsed,
     });

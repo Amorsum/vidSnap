@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:security": "tsx --test tests/url-utils.test.ts tests/api-security.test.ts tests/media-workspace.test.ts tests/legacy-processing.test.ts"
+    "test:security": "tsx --test tests/url-utils.test.ts tests/api-security.test.ts tests/media-workspace.test.ts tests/legacy-processing.test.ts tests/analysis-stores.test.ts tests/analysis-isolation.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",

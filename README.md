@@ -4,7 +4,7 @@
 
 独立从 0 到 1 构建的 AI 视频理解应用，打通「链接解析 → 音视频下载 → 三级降级转写 → 关键帧视觉理解 → LLM 结构化总结 → Agentic RAG 追问」全链路，支持 YouTube / 抖音双平台。
 
-> **优化进展（2026-10-21）**：[完整优化方案](docs/OPTIMIZATION_PLAN.md) 已开始实施 M0：历史处理接口补齐访问码与共享限流，视频 URL 和请求类型严格校验，历史接口媒体使用独立临时目录并在成功/失败时清理。会话隔离、主流水线精确清理和重定向出站限制仍待完成。当前仍依赖个人电脑在线；云端转写时间戳为估算，主总结的 Claude 流式切换尚不完整。
+> **优化进展（2026-10-21）**：[完整优化方案](docs/OPTIMIZATION_PLAN.md) 已推进 M0 两批实现：统一接口保护与严格输入；新增匿名会话、分析归属、独立媒体/帧目录及删除回写防护，并修复缓存画面证据丢失和图片索引错配。完整 M0 仍缺少重定向出站限制、Whisper 在途恢复等。当前仍依赖个人电脑在线；云端转写时间戳为估算，主总结的 Claude 流式切换尚不完整。
 
 ## 演示
 
@@ -94,12 +94,13 @@ flowchart TD
 
 - **访问码门禁**：`ACCESS_CODE` 环境变量 + 前端门禁页（`/api/verify` 校验，暴力猜测有失败计数限流）
 - **每 IP 滑动窗口限流**：`/api/process` 10 次/10 分钟，`/api/followup` 30 次/10 分钟，防刷爆 API Key
-- **真实 IP 识别**：经 Cloudflare 隧道时读 `cf-connecting-ip` 转发头，不误伤本机回环
-- **临时文件清理**：成功/异常分支均清理，无磁盘泄漏
+- **代理 IP 读取**：优先读取 `cf-connecting-ip`；只有源站入口受控且代理覆写头时才可信
+- **会话隔离**：HttpOnly 匿名会话绑定分析 ID；结果、字幕、对话、帧图和删除均校验归属，写接口增加来源与 JSON 内容类型校验
+- **临时文件清理**：主处理使用独立分析目录；成功清媒体、异常/删除清本分析，帧有独立到期清理，不按平台 ID 前缀删除共享文件。进程崩溃后的扫尾仍依赖后续分析触发
 
 ## 测试
 
-项目内置 `test-suite` 技能 + tester 测试专员（Claude Code 自动化测试工作流），最新一轮 **44 条用例 43 通过 / 1 环境相关**（含视觉理解 L 模块与 Agentic 追问 M 模块），详见 [docs/test-reports/TEST-20260831.md](docs/test-reports/TEST-20260831.md)。
+`npm run test:security` 覆盖接口保护、会话隔离、删除竞态、期限与独立产物目录，使用模拟媒体/模型和真实文件清理，不发生付费调用。历史完整流水线测试为 44 条用例 43 通过 / 1 环境相关，见 [历史报告](docs/test-reports/TEST-20260831.md)，不代替当前回归结果。
 
 ## AI 协作开发
 
@@ -146,6 +147,8 @@ npm run build
 
 `test:security` 使用独立测试进程、限流桶、模拟媒体/模型响应和真实临时目录，覆盖接口保护、输入边界与历史接口文件清理，不需要真实密钥或付费调用。当前未提供 `npm test`。已有生产服务运行时，在独立项目副本执行构建，避免改写服务使用的 `.next`。
 
+接口调用需要保存服务端签发的会话 Cookie；追问与删除应回传 `analysisId` 和 `videoId`。内容默认保留 1 小时，帧默认 2 小时，缓存命中不续期；详见 [匿名会话与分析资源](docs/API_SESSIONS.md)。
+
 视频入口接受 YouTube 的 watch、youtu.be、shorts、embed、v 视频链接，以及抖音 `/video/<数字 ID>` 和 `v.douyin.com` 短链接；拒绝用户主页、异常端口、userinfo 和伪造域名。服务端移除分享参数后再处理。主处理及两个历史处理接口共用每 IP 10 次/10 分钟额度；追问与删除各为 30 次/10 分钟，429 返回 `Retry-After`。代理 IP 头仅在受控源站入口和代理覆写条件下可信。
 
 两个历史接口 `/api/process/summarize`、`/api/process/transcribe` 保留现有 JSON 响应；仓库内未发现调用方，先做兼容保护，后续再明确停用策略。主接口仍使用原 SSE 协议。
@@ -168,6 +171,7 @@ npm run build
 │   ├── AI_CODING.md             # AI 协作开发工作流（多智能体体系）
 │   ├── IMPROVEMENT_PLAN.md      # 改进方案与执行进展
 │   ├── OPTIMIZATION_PLAN.md     # 分阶段优化方案与 M0 当前进展
+│   ├── API_SESSIONS.md          # 匿名会话、分析归属和接口兼容说明
 │   ├── screenshots/             # 演示截图
 │   └── test-reports/            # 自动化测试报告
 ├── .claude/                     # Claude Code 多智能体工作流
@@ -194,6 +198,9 @@ npm run build
 │       ├── security.ts          # 访问码 + 滑动窗口限流
 │       ├── request-validation.ts# JSON、视频 ID 和问题的运行时校验
 │       ├── media-workspace.ts   # 历史接口独立媒体目录与 finally 清理
+│       ├── session.ts           # 服务端匿名会话 Cookie
+│       ├── analysis-store.ts    # 分析归属、状态和有效期
+│       ├── analysis-artifacts.ts# 独立产物目录、边界验证与到期清理
 │       ├── platforms.ts         # 平台处理器注册
 │       ├── transcriber.ts       # 转写调度（三级降级）
 │       ├── sensevoice.ts        # SenseVoice 云端 API

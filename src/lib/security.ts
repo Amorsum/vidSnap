@@ -29,6 +29,8 @@ export function guardApiRequest(request: Request, bucket: "process" | "followup"
       { status: 401 }
     );
   }
+  const originError = checkMutationOrigin(request);
+  if (originError) return originError;
   const limit = checkRateLimit(`${bucket}:${getClientIp(request)}`, bucket === "process" ? 10 : 30, 10 * 60 * 1000);
   if (!limit.allowed) {
     return Response.json(
@@ -39,9 +41,27 @@ export function guardApiRequest(request: Request, bucket: "process" | "followup"
   return null;
 }
 
+/** 浏览器写请求必须来自相同主机；JSON-only 无 Origin 请求兼容命令行客户端。 */
+export function checkMutationOrigin(request: Request): Response | null {
+  const origin = request.headers.get("origin");
+  const requestUrl = new URL(request.url);
+  const host = request.headers.get("host") ?? requestUrl.host;
+  let allowed = request.headers.get("sec-fetch-site") !== "cross-site";
+  if (origin) {
+    try {
+      const source = new URL(origin);
+      allowed = allowed && source.origin === origin && source.host === host
+        && (source.protocol === "https:" || source.protocol === requestUrl.protocol);
+    } catch { allowed = false; }
+  }
+  allowed = allowed && /^application\/json(?:\s*;|$)/i.test(request.headers.get("content-type") ?? "");
+  return allowed ? null : Response.json({ success: false, error: "请求来源或内容类型不受支持" }, { status: 403 });
+}
+
 // ─── 每 IP 滑动窗口限流 ───
 
-const hits = new Map<string, number[]>();
+const runtime = globalThis as typeof globalThis & { vidsnapRateLimits?: Map<string, number[]> };
+const hits = runtime.vidsnapRateLimits ??= new Map<string, number[]>();
 
 /** 简单清理：条目过多时移除已全部过期的桶（时间戳均早于窗口起点），防止内存无限增长 */
 function sweepIfNeeded(now: number, windowMs: number): void {

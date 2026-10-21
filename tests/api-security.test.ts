@@ -134,7 +134,7 @@ test("未配置访问码时仍兼容放行，限流继续生效", async () => {
     const assert = require('node:assert/strict');
     const { verifyAccessCode, guardApiRequest } = require('./src/lib/security.ts');
     assert.equal(verifyAccessCode(null), true);
-    const request = new Request('http://localhost', { headers: { 'cf-connecting-ip': 'test-no-gate' } });
+    const request = new Request('http://localhost', { headers: { 'content-type': 'application/json', 'cf-connecting-ip': 'test-no-gate' } });
     for (let i = 0; i < 10; i++) assert.equal(guardApiRequest(request, 'process'), null);
     assert.equal(guardApiRequest(request, 'process').status, 429);
   `;

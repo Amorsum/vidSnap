@@ -86,6 +86,7 @@ export async function downloadDouyinVideoAndAudio(
   videoId: string,
   keepVideo: boolean,
   directory = TEMP_DIR,
+  assertActive?: () => void,
 ): Promise<{ audioPath: string; videoPath: string | null }> {
   await fs.mkdir(directory, { recursive: true });
 
@@ -100,6 +101,7 @@ export async function downloadDouyinVideoAndAudio(
     "-c", "copy",
     videoPath,
   ], { timeout: 120000 });
+  assertActive?.();
 
   // 用 ffmpeg 提取音频
   await execFileAsync("ffmpeg", [
@@ -110,6 +112,7 @@ export async function downloadDouyinVideoAndAudio(
     "-b:a", "128k",
     audioPath,
   ], { timeout: 60000 });
+  assertActive?.();
 
   // 保留视频供抽帧，否则立即清理
   if (!keepVideo) {

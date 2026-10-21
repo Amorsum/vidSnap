@@ -1,4 +1,5 @@
 export class RequestValidationError extends Error {}
+export class ServiceCapacityError extends Error {}
 
 /** JSON 类型在运行时校验，避免 null、数组与类型断言绕过边界。 */
 export async function readJsonObject(request: Request): Promise<Record<string, unknown>> {

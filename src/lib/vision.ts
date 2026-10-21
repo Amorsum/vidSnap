@@ -5,6 +5,8 @@
 import fs from "fs/promises";
 import type { TokenUsage } from "./llm";
 import { formatTime } from "./prompts";
+import { randomBytes } from "node:crypto";
+import type { Keyframe } from "./keyframes";
 
 const VISION_API_URL = "https://api.siliconflow.cn/v1/chat/completions";
 // 2026-08-31 实测：硅基流动已下线 Qwen2.5-VL 系列，账号可用视觉模型为 Qwen3-VL 系列（32B/30B-A3B/8B）
@@ -15,8 +17,11 @@ const VISION_MODEL_FALLBACKS = [
   "Qwen/Qwen3-VL-8B-Instruct",
 ];
 const FRAME_TOKEN_TTL_MS = 2 * 60 * 60 * 1000; // 与帧文件 TTL 一致
+const runtime = globalThis as typeof globalThis & { vidsnapFrameSecret?: string };
+const fallbackSigningSecret = runtime.vidsnapFrameSecret ??= randomBytes(32).toString("hex");
 
 export interface FrameDescription {
+  frameId: number;
   time: number; // 秒
   description: string;
 }
@@ -48,7 +53,7 @@ export function isVisionEnabled(): boolean {
  * 返回该模型成功拿到的描述；全部批次失败返回 null
  */
 async function describeWithModel(
-  frames: { path: string; time: number }[],
+  frames: Keyframe[],
   videoTitle: string | undefined,
   model: string,
   apiKey: string
@@ -73,11 +78,11 @@ async function describeWithModel(
         })
       );
 
-      const timeHints = chunk.map((f) => Math.round(f.time)).join("、");
+      const timeHints = chunk.map((f) => `frameId=${f.frameId}: ${Math.round(f.time)}秒`).join("、");
       const promptText = `视频标题：${videoTitle ?? "未知"}
 以下是从该视频不同时间点截取的 ${chunk.length} 张画面（按时间顺序，对应秒数分别为：${timeHints}）。
 请逐张分析画面内容（场景/人物/正在演示或展示的内容/屏幕文字与图表），每张用一句中文描述（15-40 字），并把描述绑定到对应的画面时间。
-输出 JSON，格式：{"frames":[{"time": 秒数, "description": "描述"}]}，frames 数组长度与输入图片数一致，按图片顺序排列。`;
+输出 JSON，格式：{"frames":[{"frameId": 输入的frameId, "time": 秒数, "description": "描述"}]}，每条描述必须绑定输入的 frameId，不重新编号。`;
 
       const body = {
         model,
@@ -136,12 +141,15 @@ async function describeWithModel(
       const rawList = Array.isArray(parsed.frames) ? parsed.frames : null;
       let chunkDescCount = 0;
       if (rawList) {
-        // 返回条数可能少于输入，按索引回填；空描述直接丢弃
-        chunk.forEach((f, j) => {
-          const item = rawList[j] as { description?: string; text?: string } | undefined;
-          const desc = (item?.description || item?.text || "").trim();
-          if (desc) {
-            descriptions.push({ time: f.time, description: desc });
+        rawList.forEach((item, j) => {
+          if (!item || typeof item !== "object") return;
+          const text = item.description ?? item.text;
+          const desc = typeof text === "string" ? text.trim() : "";
+          const f = item.frameId !== undefined ? chunk.find((frame) => frame.frameId === item.frameId)
+            : typeof item.time === "number" ? chunk.find((frame) => Math.abs(frame.time - item.time) <= 0.5)
+            : rawList.length === chunk.length ? chunk[j] : undefined;
+          if (f && desc && !descriptions.some((description) => description.frameId === f.frameId)) {
+            descriptions.push({ frameId: f.frameId, time: f.time, description: desc });
             chunkDescCount++;
           }
         });
@@ -159,14 +167,15 @@ async function describeWithModel(
             if (Math.abs(f.time - t) < Math.abs(best.time - t)) best = f;
           }
           if (Math.abs(best.time - t) > 2) continue; // 超出容差的异常键，丢弃
-          descriptions.push({ time: best.time, description: desc });
+          if (descriptions.some((description) => description.frameId === best.frameId)) continue;
+          descriptions.push({ frameId: best.frameId, time: best.time, description: desc });
           chunkDescCount++;
         }
         // 单图兜底形态（按批判断，多批场景下前面批的结果不影响本批）
-        if (chunkDescCount === 0) {
+        if (chunkDescCount === 0 && chunk.length === 1) {
           const singleDesc = (parsed.description || parsed.image_description) as string | undefined;
           if (typeof singleDesc === "string" && singleDesc.trim()) {
-            descriptions.push({ time: chunk[0].time, description: singleDesc.trim() });
+            descriptions.push({ frameId: chunk[0].frameId, time: chunk[0].time, description: singleDesc.trim() });
             chunkDescCount++;
           }
         }
@@ -197,7 +206,7 @@ async function describeWithModel(
  * 返回 null 表示降级（调用方走音频-only 流程）
  */
 export async function describeFrames(
-  frames: { path: string; time: number }[],
+  frames: Keyframe[],
   videoTitle?: string
 ): Promise<VisionResult | null> {
   if (frames.length === 0) return null;
@@ -213,8 +222,8 @@ export async function describeFrames(
   const usages: TokenUsage[] = [];
 
   for (const model of chain) {
-    const coveredTimes = new Set(descriptions.map((d) => d.time));
-    const missing = frames.filter((f) => !coveredTimes.has(f.time));
+    const coveredFrames = new Set(descriptions.map((d) => d.frameId));
+    const missing = frames.filter((f) => !coveredFrames.has(f.frameId));
     if (missing.length === 0) break;
 
     const result = await describeWithModel(missing, videoTitle, model, apiKey);
@@ -245,7 +254,7 @@ export async function describeFrames(
       }))
     : null;
 
-  return { descriptions, usage };
+  return { descriptions: descriptions.sort((a, b) => a.time - b.time), usage };
 }
 
 /**
@@ -275,9 +284,9 @@ async function hmacHex(secret: string, message: string): Promise<string> {
 }
 
 /** 帧图访问 token：`<expMs>.<hmac(videoId:idx:expMs)>`，2 小时过期 */
-export async function signFrameToken(videoId: string, idx: number): Promise<string> {
-  const secret = process.env.ACCESS_CODE || process.env.SENSEVOICE_API_KEY || "vidsnap-frames";
-  const expMs = Date.now() + FRAME_TOKEN_TTL_MS;
+export async function signFrameToken(videoId: string, idx: number, expiresAt = Date.now() + FRAME_TOKEN_TTL_MS): Promise<string> {
+  const secret = process.env.ACCESS_CODE || process.env.SENSEVOICE_API_KEY || fallbackSigningSecret;
+  const expMs = Math.min(expiresAt, Date.now() + FRAME_TOKEN_TTL_MS);
   const sig = await hmacHex(secret, `${videoId}:${idx}:${expMs}`);
   return `${expMs}.${sig}`;
 }
@@ -288,7 +297,7 @@ export async function verifyFrameToken(token: string, videoId: string, idx: numb
   if (dotIdx <= 0) return false;
   const expMs = Number(token.slice(0, dotIdx));
   if (!Number.isFinite(expMs) || expMs < Date.now()) return false;
-  const secret = process.env.ACCESS_CODE || process.env.SENSEVOICE_API_KEY || "vidsnap-frames";
+  const secret = process.env.ACCESS_CODE || process.env.SENSEVOICE_API_KEY || fallbackSigningSecret;
   const expected = await hmacHex(secret, `${videoId}:${idx}:${expMs}`);
   return expected === token.slice(dotIdx + 1);
 }

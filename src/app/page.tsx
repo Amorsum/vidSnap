@@ -14,6 +14,7 @@ import { sseLines } from "@/lib/sse";
 import type { VideoInfo } from "@/lib/video-processor";
 
 interface ProcessResult {
+  analysisId: string;
   video: VideoInfo;
   transcriptSource: "builtin" | "whisper";
   transcriptText: string;
@@ -117,7 +118,7 @@ export default function Home() {
   const [gateError, setGateError] = useState("");
   const [gateChecking, setGateChecking] = useState(false);
 
-  // 已有访问码（localStorage / URL 参数 ?code=xxx）则直接放行，后台校验失效码自动退回门禁
+  // 等待校验响应落下会话 cookie 后再开放提交，避免首个处理请求与身份签发竞态。
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const stored = localStorage.getItem("vidsnap_access_code") || "";
@@ -125,7 +126,7 @@ export default function Home() {
       const candidate = stored || urlCode;
       if (candidate) {
         setAccessCode(candidate);
-        setGatePassed(true);
+        setGateChecking(true);
         if (urlCode) {
           localStorage.setItem("vidsnap_access_code", urlCode);
           history.replaceState({}, "", window.location.pathname); // 清除 URL 中的码
@@ -142,9 +143,12 @@ export default function Home() {
               localStorage.removeItem("vidsnap_access_code");
               setAccessCode("");
               setGatePassed(false);
+            } else {
+              setGatePassed(true);
             }
           })
-          .catch(() => {});
+          .catch(() => { setGatePassed(true); })
+          .finally(() => { setGateChecking(false); });
       }
       setMounted(true);
     }, 0);
@@ -277,7 +281,7 @@ export default function Home() {
       const response = await fetch("/api/followup", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Access-Code": accessCode },
-        body: JSON.stringify({ videoId: result.video.id, question }),
+        body: JSON.stringify({ videoId: result.video.id, analysisId: result.analysisId, question }),
       });
       const data = await response.json();
       if (response.status === 401) {

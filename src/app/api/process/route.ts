@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cleanupTempFiles, type VideoInfo, type ProcessResult } from "@/lib/video-processor";
+import { type VideoInfo, type ProcessResult } from "@/lib/video-processor";
 import { getTranscript, parseBuiltinSubtitle, type TranscriptResult } from "@/lib/transcriber";
 import { transcribeWithSenseVoice } from "@/lib/sensevoice";
 import { parseVideoUrl, UNSUPPORTED_PLATFORM_MESSAGE } from "@/lib/url-utils";
@@ -10,11 +10,17 @@ import { calcCost } from "@/lib/observability";
 import { SUMMARIZE_SYSTEM_PROMPT, formatTranscriptForPrompt } from "@/lib/prompts";
 import { tryEmbedSegments } from "@/lib/embeddings";
 import { getCachedResult, cacheResult, invalidateCache } from "@/lib/process-cache";
-import { saveTranscript, removeTranscript } from "@/lib/transcript-store";
+import { saveTranscript, removeTranscript, getTranscript as getStoredTranscript } from "@/lib/transcript-store";
 import { clearConversation } from "@/lib/conversation-store";
 import { guardApiRequest } from "@/lib/security";
-import { readJsonObject, isValidVideoId, RequestValidationError } from "@/lib/request-validation";
-import { extractKeyframes, scheduleFramesCleanup, sweepExpiredFrames, cleanupFrameFiles } from "@/lib/keyframes";
+import { readJsonObject, isValidVideoId, RequestValidationError, ServiceCapacityError } from "@/lib/request-validation";
+import { extractKeyframes } from "@/lib/keyframes";
+import { ensureSession, getSessionId } from "@/lib/session";
+import {
+  ARTIFACT_TTL_MS, createAnalysis, findReusableAnalysis, getOwnedAnalysis, isAnalysisId,
+  assertAnalysisActive, completeAnalysis, revokeAnalysis, type Analysis,
+} from "@/lib/analysis-store";
+import { analysisDirectory, ensureAnalysisDirectories, cleanupAnalysisArtifacts, scheduleAnalysisCleanup, sweepAnalysisArtifacts } from "@/lib/analysis-artifacts";
 import {
   isVisionEnabled, describeFrames, formatFramePrompt, signFrameToken,
   type FrameDescription, type FrameInfo,
@@ -27,9 +33,11 @@ function sseEvent(data: unknown): string {
 
 /** 将底层命令错误转为可操作的用户提示，避免把整段 yt-dlp stderr 直接暴露到页面。 */
 function getUserFacingProcessError(error: unknown): string {
+  if (error instanceof ServiceCapacityError) return error.message;
   if (!(error instanceof Error)) return "处理失败，请稍后重试";
 
   const message = error.message;
+  if (/^该分析已删除或过期|^该视频没有检测到语音内容/.test(message)) return message;
   if (/WinError 10013|Failed to establish a new connection|Unable to download (?:webpage|API page)/i.test(message)) {
     return "无法连接 YouTube，请检查服务器网络或代理设置后重试。";
   }
@@ -121,6 +129,7 @@ async function doVisionPhase(
   info: VideoInfo,
   downloadResult: ProcessResult,
   processor: ReturnType<typeof getProcessor>,
+  analysis: Analysis,
   send: (data: unknown) => void,
 ): Promise<{
   descriptions: FrameDescription[];
@@ -135,25 +144,29 @@ async function doVisionPhase(
     let videoPath = downloadResult.videoPath ?? null;
     if (!videoPath) {
       if (!processor.downloadVideo) return null;
-      videoPath = await processor.downloadVideo(url, info);
+      videoPath = await processor.downloadVideo(url, info, analysisDirectory(analysis.id, "media"));
     }
 
-    const frames = await extractKeyframes(videoPath, info.id, info.duration);
-    await sweepExpiredFrames();
+    assertAnalysisActive(analysis);
+    const frames = await extractKeyframes(videoPath, info.id, info.duration, 8, analysisDirectory(analysis.id, "frames"));
+    assertAnalysisActive(analysis);
+    analysis.framesExpireAt = Date.now() + ARTIFACT_TTL_MS;
+    analysis.expiresAt = Math.max(analysis.expiresAt, analysis.framesExpireAt);
+    scheduleAnalysisCleanup(analysis.id, analysis.framesExpireAt, "frames");
     send(progress("vision", mapPhaseProgress("vision", 60)));
 
     const vision = await describeFrames(frames, info.title);
+    assertAnalysisActive(analysis);
     if (!vision) return null;
 
     const frameInfos: FrameInfo[] = await Promise.all(
-      vision.descriptions.map(async (d, i) => ({
+      vision.descriptions.map(async (d) => ({
         time: d.time,
         description: d.description,
-        src: `/api/frames?videoId=${info.id}&idx=${i + 1}&token=${await signFrameToken(info.id, i + 1)}`,
+        src: `/api/frames?videoId=${info.id}&analysisId=${analysis.id}&idx=${d.frameId}&token=${await signFrameToken(analysis.id, d.frameId, analysis.framesExpireAt)}`,
       }))
     );
 
-    scheduleFramesCleanup(info.id);
     send(progress("vision", mapPhaseProgress("vision", 100)));
     return { descriptions: vision.descriptions, frameInfos, usage: vision.usage };
   } catch (err) {
@@ -167,6 +180,7 @@ async function doVisionPhase(
 async function doAISummarize(
   info: VideoInfo,
   transcript: TranscriptResult,
+  analysis: Analysis,
   send: (data: unknown) => void,
   vision?: { descriptions: FrameDescription[]; frameInfos: FrameInfo[] },
 ): Promise<{ result: Record<string, unknown>; usage: TokenUsage | null; latencyMs: number }> {
@@ -203,6 +217,7 @@ ${transcriptText}${visionBlock ? `\n\n${visionBlock}` : ""}`;
     jsonMode: true,
     onUsage: (u) => { usage = u; },
   })) {
+    assertAnalysisActive(analysis);
     fullText += chunk;
     tokenCount += chunk.length; // 粗略估算
     send({ type: "stream", text: chunk });
@@ -215,10 +230,12 @@ ${transcriptText}${visionBlock ? `\n\n${visionBlock}` : ""}`;
   send({ type: "stream_end" });
 
   const aiResult = parseAIJSON<Record<string, unknown>>(fullText);
+  assertAnalysisActive(analysis);
   const latencyMs = Date.now() - summarizeStart;
 
   // 生成 embedding（失败降级，不影响主流程）
   const transcriptEmbeddings = await tryEmbedSegments(transcript.segments);
+  assertAnalysisActive(analysis);
 
   // 关键帧视觉描述作为【画面】伪段落存入追问库（带 embedding），
   // 追问三工具可检索画面信息，支持「画面里有什么/这个人是谁」类问题
@@ -228,6 +245,7 @@ ${transcriptText}${visionBlock ? `\n\n${visionBlock}` : ""}`;
     text: `【画面】${d.description}`,
   }));
   const visionEmbeddings = visionSegments.length > 0 ? await tryEmbedSegments(visionSegments) : undefined;
+  assertAnalysisActive(analysis);
 
   const combinedSegments = [...transcript.segments, ...visionSegments];
   const combinedEmbeddings = combinedSegments.map((_, i) =>
@@ -236,13 +254,16 @@ ${transcriptText}${visionBlock ? `\n\n${visionBlock}` : ""}`;
       : visionEmbeddings?.[i - transcript.segments.length]
   );
 
-  saveTranscript(info.id, combinedSegments, info, combinedEmbeddings);
-  cacheResult(info.id, {
+  const expiresAt = completeAnalysis(analysis);
+  saveTranscript(analysis.id, combinedSegments, info, combinedEmbeddings, expiresAt);
+  cacheResult(analysis.id, {
     video: info,
     transcriptSource: transcript.source,
     transcriptText: transcript.text,
     transcriptSegments: transcript.segments,
     transcriptEmbeddings,
+    evidenceSegments: combinedSegments.map((segment, i) => ({ ...segment, embedding: combinedEmbeddings[i] })),
+    expiresAt,
     result: aiResult,
     frames: vision?.frameInfos,
   });
@@ -268,6 +289,7 @@ export async function POST(request: NextRequest) {
     }
 
     const url = videoUrl.url;
+    const session = ensureSession(request);
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -298,6 +320,7 @@ export async function POST(request: NextRequest) {
 
         // info 声明在 try 外：catch 分支需要用它清理临时文件
         let info: VideoInfo | undefined;
+        let analysis: Analysis | undefined;
 
         try {
           let transcript: TranscriptResult;
@@ -312,10 +335,15 @@ export async function POST(request: NextRequest) {
           send(progress("downloading", 0));
           const processor = getProcessor(url);
           info = await processor.getInfo(url);
+          if (!isValidVideoId(info.id)) throw new Error("视频元信息中的 ID 无效");
           send(progress("downloading", 10));
 
           // 缓存优先：命中则完全跳过下载与转写（快速路径，避免重复下载浪费）
-          const cached = getCachedResult(info.id);
+          const reusable = findReusableAnalysis(session.id, videoUrl.platform, info.id);
+          const cached = reusable ? getCachedResult(reusable.id) : null;
+          analysis = cached && reusable ? reusable : createAnalysis(session.id, videoUrl.platform, info.id);
+          send({ ...progress("downloading", 10), analysisId: analysis.id });
+          assertAnalysisActive(analysis);
           if (cached) {
             send(progress("downloading", 100));
             transcript = {
@@ -324,11 +352,20 @@ export async function POST(request: NextRequest) {
               source: cached.transcriptSource,
             };
             aiResult = cached.result;
-            frameInfos = cached.frames;
-            saveTranscript(info.id, transcript.segments, info, cached.transcriptEmbeddings);
+            frameInfos = (analysis.framesExpireAt ?? 0) > Date.now() ? cached.frames : [];
+            if (!getStoredTranscript(analysis.id)) {
+              saveTranscript(analysis.id, cached.evidenceSegments, info,
+                cached.evidenceSegments.map((segment) => segment.embedding), cached.expiresAt);
+            }
           } else {
+            await sweepAnalysisArtifacts();
+            const directories = await ensureAnalysisDirectories(analysis.id);
+            assertAnalysisActive(analysis);
+            scheduleAnalysisCleanup(analysis.id, analysis.expiresAt);
             // 缓存未命中才下载（字幕优先或音频）
-            const downloadResult = await processor.download(url, info);
+            const currentAnalysis = analysis;
+            const downloadResult = await processor.download(url, info, directories.media, () => assertAnalysisActive(currentAnalysis));
+            assertAnalysisActive(analysis);
             send(progress("downloading", 100));
 
             // 转写：字幕优先，否则下载音频转写
@@ -340,28 +377,28 @@ export async function POST(request: NextRequest) {
               const model = processor.useTinyForShortVideos && isShortVideo && process.env.WHISPER_MODEL !== "tiny" ? "tiny" : undefined;
               transcript = await getTranscriptSmart(downloadResult, send, { model });
             }
+            assertAnalysisActive(analysis);
 
             if (transcript.segments.length === 0) {
-              await cleanupTempFiles(info.id);
-              send({ type: "error", message: "该视频没有检测到语音内容（可能是纯音乐或无声视频），无法生成文字总结" });
-              controller.close();
-              return;
+              throw new Error("该视频没有检测到语音内容（可能是纯音乐或无声视频），无法生成文字总结");
             }
 
             // 视觉理解：抽关键帧 → 视觉模型描述（失败静默降级为音频-only）
-            const vision = await doVisionPhase(url, info, downloadResult, processor, send);
+            const vision = await doVisionPhase(url, info, downloadResult, processor, analysis, send);
+            assertAnalysisActive(analysis);
             if (vision) {
               frameInfos = vision.frameInfos;
               visionUsage = vision.usage;
             }
 
             send(progress("analyzing", mapPhaseProgress("analyzing", 0)));
-            const summary = await doAISummarize(info, transcript, send, vision ?? undefined);
+            const summary = await doAISummarize(info, transcript, analysis, send, vision ?? undefined);
             aiResult = summary.result;
             summarizeUsage = summary.usage;
             summarizeLatencyMs = summary.latencyMs;
-            await cleanupTempFiles(info.id);
           }
+          assertAnalysisActive(analysis);
+          scheduleAnalysisCleanup(analysis.id, analysis.expiresAt);
 
           // 收尾
           send(progress("done", 100));
@@ -383,6 +420,7 @@ export async function POST(request: NextRequest) {
           send({
             type: "result",
             data: {
+              analysisId: analysis.id,
               video: info,
               transcriptSource: transcript.source,
               transcriptText: transcript.text,
@@ -401,14 +439,24 @@ export async function POST(request: NextRequest) {
             },
           });
         } catch (error: unknown) {
-          console.error("[process] 视频处理失败:", error);
-          send({ type: "error", message: getUserFacingProcessError(error) });
-          // 异常分支也要清理已下载的临时文件，防止磁盘泄漏
-          if (info) {
-            await cleanupTempFiles(info.id);
-          }
+          const deleted = analysis?.status === "deleted";
+          if (!deleted) console.error("[process] 视频处理失败:", error);
+          send({ type: "error", message: deleted ? "该分析已删除或过期，请重新处理视频" : getUserFacingProcessError(error) });
         } finally {
           clearInterval(heartbeatInterval);
+          if (analysis) {
+            try {
+              if (analysis.status === "completed") {
+                await cleanupAnalysisArtifacts(analysis.id, "media");
+              } else {
+                if (analysis.status !== "deleted") analysis.status = "failed";
+                invalidateCache(analysis.id);
+                removeTranscript(analysis.id);
+                clearConversation(analysis.id);
+                await cleanupAnalysisArtifacts(analysis.id);
+              }
+            } catch { console.error("[process] 独立分析目录清理失败，等待到期扫尾"); }
+          }
           try {
             controller.close();
           } catch {
@@ -423,10 +471,13 @@ export async function POST(request: NextRequest) {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
+        ...(session.cookie ? { "Set-Cookie": session.cookie } : {}),
       },
     });
-  } catch {
-    return NextResponse.json({ success: false, error: "请求格式错误" }, { status: 400 });
+  } catch (error) {
+    if (error instanceof ServiceCapacityError) return NextResponse.json({ success: false, error: error.message }, { status: 503 });
+    if (error instanceof RequestValidationError) return NextResponse.json({ success: false, error: "请求格式错误" }, { status: 400 });
+    return NextResponse.json({ success: false, error: "请求处理失败，请稍后重试" }, { status: 500 });
   }
 }
 
@@ -434,16 +485,19 @@ export async function DELETE(request: NextRequest) {
   const denied = guardApiRequest(request, "delete");
   if (denied) return denied;
   try {
-    const { videoId } = await readJsonObject(request);
-    if (!isValidVideoId(videoId)) {
+    const { videoId, analysisId } = await readJsonObject(request);
+    if (!isValidVideoId(videoId) || (analysisId !== undefined && !isAnalysisId(analysisId))) {
       return NextResponse.json({ success: false, error: "请提供合法的 videoId" }, { status: 400 });
     }
-    await cleanupTempFiles(videoId);
-    await cleanupFrameFiles(videoId);
+    const analysis = getOwnedAnalysis(getSessionId(request), videoId, analysisId);
+    if (!analysis) return NextResponse.json({ success: false, error: "分析不存在或已过期" }, { status: 404 });
+    // 先撤销写入权，防止在途总结/追问在清理后重新保存内容。
+    revokeAnalysis(analysis);
     // 同步失效内存态数据，避免缓存命中返回悬空帧引用、追问残留旧数据
-    invalidateCache(videoId);
-    removeTranscript(videoId);
-    clearConversation(videoId);
+    invalidateCache(analysis.id);
+    removeTranscript(analysis.id);
+    clearConversation(analysis.id);
+    await cleanupAnalysisArtifacts(analysis.id);
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     if (error instanceof RequestValidationError) {
