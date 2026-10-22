@@ -1,10 +1,4 @@
-import { execFile } from "child_process";
-import { promisify } from "util";
-import path from "path";
-
-const execFileAsync = promisify(execFile);
-
-const SCRIPTS_DIR = path.join(process.cwd(), "scripts");
+import { getWhisperClient } from "./whisper-client";
 
 export interface TranscriptionSegment {
   start: number;
@@ -23,21 +17,8 @@ export interface TranscriptionResult {
  */
 export async function transcribeAudio(
   audioPath: string,
-  modelName: string = "small"
+  modelName: string = process.env.WHISPER_MODEL || "medium"
 ): Promise<TranscriptionResult> {
-  const scriptPath = path.join(SCRIPTS_DIR, "whisper_asr.py");
-
-  const { stdout } = await execFileAsync("python", [
-    scriptPath,
-    audioPath,
-    modelName,
-  ]);
-
-  const result = JSON.parse(stdout);
-
-  if (result.error) {
-    throw new Error(result.error);
-  }
-
-  return result as TranscriptionResult;
+  const result = await getWhisperClient().transcribe({ audio_path: audioPath, model: modelName });
+  return { ...result, language: result.language ?? "unknown" };
 }

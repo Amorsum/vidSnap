@@ -4,7 +4,7 @@
 
 独立从 0 到 1 构建的 AI 视频理解应用，打通「链接解析 → 音视频下载 → 三级降级转写 → 关键帧视觉理解 → LLM 结构化总结 → Agentic RAG 追问」全链路，支持 YouTube / 抖音双平台。
 
-> **优化进展（2026-10-21）**：[完整优化方案](docs/OPTIMIZATION_PLAN.md) 已推进 M0 三批实现：统一接口保护、会话与分析隔离、独立产物目录、缓存证据及帧索引修复；第三批增加短链逐跳校验和媒体出站域名/DNS/固定 IP 连接边界，见 [媒体网络说明](docs/MEDIA_NETWORK.md)。M0 仍待 Whisper 在途恢复及真实部署网络冒烟。当前仍依赖个人电脑在线；云端转写时间戳为估算，主总结的 Claude 流式切换尚不完整。
+> **优化进展（2026-10-22）**：[完整优化方案](docs/OPTIMIZATION_PLAN.md) 已推进 M0 四批实现：接口、会话及资源隔离，缓存证据与帧索引，媒体出站边界，以及 [Whisper 单进程故障恢复](docs/WHISPER_RECOVERY.md)。本地转写增加握手、请求 ID、排队与总预算、退出恢复及串行脚本兜底；真实部署网络/推理冒烟仍待补，不能宣称 M0 整体验收通过。当前仍依赖个人电脑在线；云端转写时间戳为估算，主总结的 Claude 流式切换尚不完整。
 
 ## 演示
 
@@ -58,7 +58,7 @@ flowchart TD
 
 > 本项目的核心不是"能跑"，而是「把 LLM 从能跑做成可信、可控、可评估、可观测」。以下每一点都可以在面试中展开。
 
-1. **三级降级转写**（成本/延迟/可用性权衡）：视频自带字幕 → 硅基流动 SenseVoice 云端 API → 本地 faster-whisper 常驻服务器。Whisper 常驻进程 + stdin/stdout 多行 JSON 协议，消除每次 2-5s 模型冷启动；短视频自动切 tiny 模型提速
+1. **三级降级转写**（成本/延迟/可用性权衡）：视频自带字幕 → 硅基流动 SenseVoice 云端 API → 本地 faster-whisper 常驻服务器。单 Node 进程共享串行转写队列，握手和请求 ID 隔离响应；排队、启动、推理与脚本兜底共用默认 10 分钟预算。保留既有短抖音 tiny 策略，本批没有质量或提速实测结论
 2. **多模态关键帧视觉理解**：FFmpeg 均匀采样抽帧（确定性时间戳）→ 硅基流动 Qwen3-VL 批量画面描述 → 与字幕按时间戳融合进总结（画面与字幕冲突时以画面为准，±5s 容差语义对齐）；视觉链路任何失败静默降级音频-only；关键帧画廊 + HMAC 签名帧图服务 + 2h 生命周期管理
 3. **Agentic 追问（tool-calling）**：检索策略从固定管线升级为模型自主决策——语义检索/关键词检索/时间范围三工具，DeepSeek function calling 与 Claude tool_use 双协议归一；轮数上限 + 重复调用终止 + 无工具终轮三重防死循环；前端可见工具调用轨迹
 4. **向量 RAG**：字幕分段 bge-m3 向量化（4000 字符截断 + 32 条分批防超长 500），余弦相似度 top-k；回答可溯源到秒级时间戳
@@ -137,6 +137,8 @@ npm run dev
 
 媒体出站默认直连，不自动使用系统/环境代理或 yt-dlp 本地配置。需要代理时在 `.env.local` 配置 `MEDIA_UPSTREAM_PROXY=http://127.0.0.1:<HTTP或mixed端口>`，并保证 DNS 返回真实公网地址；迁移限制及完整规则见 [媒体网络说明](docs/MEDIA_NETWORK.md)。
 
+本地转写可配置 `WHISPER_TIMEOUT_MS`（默认 600000）和 `WHISPER_STARTUP_TIMEOUT_MS`（默认 120000）；队列满/超时明确失败，不并行启动脚本绕过限制。配置、协议兼容和恢复边界见 [Whisper 恢复说明](docs/WHISPER_RECOVERY.md)。
+
 ## 开发与验证
 
 使用 `demo` 作为日常开发分支，`main` 作为主分支。功能验证通过并经确认后再发布到主分支；提交和推送前先概述改动并获得确认，不自动同步两个分支。现有 `master` 保留历史 B 站实现，供后续查阅，本轮不合入、不删除，也不为常规优化额外创建分支。
@@ -206,6 +208,7 @@ npm run build
 │       ├── analysis-artifacts.ts# 独立产物目录、边界验证与到期清理
 │       ├── platforms.ts         # 平台处理器注册
 │       ├── transcriber.ts       # 转写调度（三级降级）
+│       ├── whisper-client.ts    # 共享队列、握手、预算及故障恢复
 │       ├── sensevoice.ts        # SenseVoice 云端 API
 │       ├── video-processor.ts   # yt-dlp 视频处理
 │       ├── douyin-processor.ts  # 抖音解析（Playwright）
@@ -218,6 +221,7 @@ npm run build
 └── scripts/
     ├── whisper_server.py        # Whisper 常驻服务器（消冷启动）
     ├── whisper_asr.py           # Whisper 降级脚本
+    ├── whisper_audio.py         # 有界预处理与 WAV 清理
     ├── douyin_playwright.py     # 抖音 Playwright 解析
     └── eval/                    # 总结质量评测（LLM-as-judge，fixtures + results 归档）
 ```

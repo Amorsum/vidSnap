@@ -26,6 +26,7 @@ import {
   type FrameDescription, type FrameInfo,
 } from "@/lib/vision";
 import { existsSync } from "fs";
+import { whisperFailureMessage } from "@/lib/whisper-client";
 
 function sseEvent(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`;
@@ -33,6 +34,8 @@ function sseEvent(data: unknown): string {
 
 /** 将底层命令错误转为可操作的用户提示，避免把整段 yt-dlp stderr 直接暴露到页面。 */
 function getUserFacingProcessError(error: unknown): string {
+  const whisperMessage = whisperFailureMessage(error);
+  if (whisperMessage) return whisperMessage;
   if (error instanceof ServiceCapacityError) return error.message;
   if (!(error instanceof Error)) return "处理失败，请稍后重试";
 

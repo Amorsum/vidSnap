@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:security": "tsx --test tests/url-utils.test.ts tests/api-security.test.ts tests/media-workspace.test.ts tests/legacy-processing.test.ts tests/analysis-stores.test.ts tests/analysis-isolation.test.ts tests/media-network.test.ts && python -B -m unittest discover -s tests -p test_media_network.py -v"
+    "test:security": "tsx --test tests/url-utils.test.ts tests/api-security.test.ts tests/media-workspace.test.ts tests/legacy-processing.test.ts tests/analysis-stores.test.ts tests/analysis-isolation.test.ts tests/media-network.test.ts tests/whisper-client.test.ts tests/whisper-fallback.test.ts && python -B -m unittest discover -s tests -p test_*.py -v"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",

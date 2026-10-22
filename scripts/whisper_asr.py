@@ -1,5 +1,6 @@
 """Whisper ASR 脚本 —— 高质量转写版（降级用）"""
-import sys, os, json, subprocess, tempfile, warnings
+import sys, os, json, warnings
+from whisper_audio import prepared_audio
 
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 warnings.filterwarnings("ignore")
@@ -26,40 +27,35 @@ def detect_device():
 
 DEVICE, COMPUTE_TYPE = detect_device()
 
-def preprocess_audio(audio_path):
-    fd, p = tempfile.mkstemp(suffix=".wav")
-    os.close(fd)
-    subprocess.run(["ffmpeg", "-y", "-protocol_whitelist", "file,pipe", "-i", audio_path, "-ar", "16000", "-ac", "1", p], capture_output=True)
-    return p
-
-def transcribe(audio_path, model_name="large-v3", language=None):
+def transcribe(audio_path, model_name="medium", language=None):
     model = WhisperModel(model_name, device=DEVICE, compute_type=COMPUTE_TYPE)
-    processed_path = preprocess_audio(audio_path)
-
-    segments_iter, info = model.transcribe(
-        processed_path, language=language,
-        beam_size=5, best_of=5, patience=2,
-        temperature=[0.0, 0.2, 0.4, 0.6, 0.8],
-        compression_ratio_threshold=2.4, no_speech_threshold=0.6,
-        word_timestamps=True, vad_filter=True,
-        vad_parameters=dict(min_silence_duration_ms=300),
-        condition_on_previous_text=True,
-    )
-
-    segments, full_text = [], []
-    for seg in segments_iter:
-        segments.append({"start": round(seg.start, 2), "end": round(seg.end, 2), "text": seg.text.strip()})
-        full_text.append(seg.text.strip())
-
-    try: os.unlink(processed_path)
-    except OSError: pass
-
+    with prepared_audio(audio_path) as processed_path:
+        segments_iter, info = model.transcribe(
+            processed_path, language=language,
+            beam_size=5, best_of=5, patience=2,
+            temperature=[0.0, 0.2, 0.4, 0.6, 0.8],
+            compression_ratio_threshold=2.4, no_speech_threshold=0.6,
+            word_timestamps=True, vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=300),
+            condition_on_previous_text=True,
+        )
+        segments, full_text = [], []
+        for seg in segments_iter:
+            segments.append({"start": round(seg.start, 2), "end": round(seg.end, 2), "text": seg.text.strip()})
+            full_text.append(seg.text.strip())
     return {"text": " ".join(full_text), "segments": segments, "language": info.language}
 
+
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     if len(sys.argv) < 3:
         print(json.dumps({"error": "Usage: python whisper_asr.py <audio_path> <model> [language]"}))
         sys.exit(1)
-    print(f"Device: {DEVICE}", file=sys.stderr)
-    result = transcribe(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
-    print(json.dumps(result, ensure_ascii=False))
+    try:
+        result = transcribe(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
+        print(json.dumps(result, ensure_ascii=False))
+    except Exception as error:
+        print(f"[whisper_asr] 转写失败: {type(error).__name__}", file=sys.stderr)
+        print(json.dumps({"error": "本地转写失败"}, ensure_ascii=False))
+        sys.exit(1)

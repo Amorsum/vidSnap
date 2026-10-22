@@ -46,6 +46,8 @@ before(async () => {
 
 after(async () => {
   for (const id of created) await artifacts.cleanupAnalysisArtifacts(id);
+  const { getWhisperClient } = await import("../src/lib/whisper-client");
+  await getWhisperClient().close();
   mockState.restore();
 });
 
@@ -271,5 +273,53 @@ for (const stage of ["download", "summary"]) {
       assert.ok(cache.getCachedResult(completed.data.analysisId));
       assert.ok(await fs.stat(path.join(artifacts.analysisDirectory(completed.data.analysisId, "frames"), `${videoId}-kf-001.jpg`)));
     } finally { mockState.fail(); }
+  });
+}
+
+for (const mode of ["cloud-success", "local-success"]) {
+  test(`${mode}：保持云端优先与常驻失败到脚本兜底，SSE 返回结果`, async () => {
+    const before = mockState.counts();
+    mockState.asr(mode);
+    try {
+      const result = await processFor();
+      assert.equal(result.data.transcriptSource, "whisper");
+      assert.match(result.data.transcriptSegments[0].text, mode === "cloud-success" ? /云端转写/ : /本地转写/);
+      assert.equal(mockState.counts().cloud, before.cloud + 1);
+      assert.equal(mockState.counts().whisper, before.whisper + (mode === "local-success" ? 1 : 0));
+    } finally { mockState.asr(); }
+  });
+}
+
+test("没有可选云端 key 仍可经本地脚本完成转写", async () => {
+  const previous = process.env.SENSEVOICE_API_KEY;
+  const before = mockState.counts();
+  delete process.env.SENSEVOICE_API_KEY;
+  mockState.asr("local-success");
+  try {
+    const result = await processFor();
+    assert.equal(result.data.transcriptSegments[0].text, "本地转写证据");
+    assert.equal(mockState.counts().cloud, before.cloud);
+    assert.equal(mockState.counts().whisper, before.whisper + 1);
+  } finally { process.env.SENSEVOICE_API_KEY = previous; mockState.asr(); }
+});
+
+for (const mode of ["local-error", "local-empty"]) {
+  test(`${mode}：SSE 明确失败并清理本次分析，下次仍可成功`, async () => {
+    mockState.asr(mode);
+    try {
+      const response = await main.POST(request({ url: `https://youtu.be/${videoId}` }));
+      const output = await response.text();
+      const events = output.split("\n\n").filter((line) => line.startsWith("data: ")).map((line) => JSON.parse(line.slice(6)));
+      const id = events.find((event) => event.analysisId)?.analysisId;
+      assert.ok(id);
+      created.add(id);
+      assert.ok(events.some((event) => event.type === "error"));
+      assert.doesNotMatch(output, /private|"type":"result"/);
+      assert.match(output, mode === "local-empty" ? /没有检测到语音/ : /本地转写服务暂不可用/);
+      assert.equal(transcripts.getTranscript(id), null);
+      await assert.rejects(fs.stat(artifacts.analysisDirectory(id)), { code: "ENOENT" });
+      mockState.asr("local-success");
+      assert.equal((await processFor()).data.transcriptSegments[0].text, "本地转写证据");
+    } finally { mockState.asr(); }
   });
 }

@@ -17,8 +17,10 @@ let transcribe: typeof import("../src/app/api/process/transcribe/route");
 let summarize: typeof import("../src/app/api/process/summarize/route");
 let sequence = 0;
 const originalExecFile = childProcess.execFile;
+const originalSpawn = childProcess.spawn;
 
 before(async () => {
+  Object.defineProperty(childProcess, "spawn", { value: () => { throw new Error("模拟常驻进程不可用"); }, configurable: true, writable: true });
   process.env.ACCESS_CODE = "legacy-regression-only";
   process.env.DEEPSEEK_API_KEY = "mock-provider-key";
   process.env.LLM_PROVIDER = "deepseek";
@@ -61,6 +63,7 @@ before(async () => {
 
 after(() => {
   childProcess.execFile = originalExecFile;
+  childProcess.spawn = originalSpawn;
   mock.restoreAll();
 });
 

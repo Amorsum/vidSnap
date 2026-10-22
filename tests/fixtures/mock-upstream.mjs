@@ -5,16 +5,19 @@ import { ServerResponse } from "node:http";
 
 // 仅由测试进程显式预加载，所有网络与媒体进程均被替换。
 let failure = "";
+let asrMode = "";
 let pausedStage = "";
 let announce = () => {};
 let resume = async () => {};
-const counts = { metadata: 0, download: 0, vision: 0, summary: 0, followup: 0, embedding: 0 };
+const counts = { metadata: 0, download: 0, vision: 0, summary: 0, followup: 0, embedding: 0, cloud: 0, whisper: 0 };
 const originalExecFile = childProcess.execFile;
+const originalSpawn = childProcess.spawn;
 const originalFetch = globalThis.fetch;
 const originalWriteHead = ServerResponse.prototype.writeHead;
 
 export const mockState = {
   fail(stage = "") { failure = stage; },
+  asr(mode = "") { asrMode = mode; },
   counts() { return { ...counts }; },
   pauseNext(stage) {
     pausedStage = stage;
@@ -26,6 +29,7 @@ export const mockState = {
   },
   restore() {
     childProcess.execFile = originalExecFile;
+    childProcess.spawn = originalSpawn;
     globalThis.fetch = originalFetch;
     ServerResponse.prototype.writeHead = originalWriteHead;
   },
@@ -39,6 +43,7 @@ async function checkpoint(stage) {
 }
 
 export function installMockUpstream() {
+  childProcess.spawn = () => { throw new Error("禁止调用真实常驻媒体进程"); };
   ServerResponse.prototype.writeHead = function (...args) {
     this.setHeader("X-Vidsnap-Test-Mocks", "1");
     return originalWriteHead.apply(this, args);
@@ -72,11 +77,18 @@ export function installMockUpstream() {
         }
         await checkpoint("download");
         if (args.includes("--skip-download")) {
+          if (asrMode) return { stdout: "", stderr: "" };
           await fs.writeFile(`${template}.zh-Hans.srt`, "1\n00:00:00,000 --> 00:00:05,000\n这是隔离测试字幕。\n\n2\n00:00:05,000 --> 00:00:10,000\n第二段说明。\n");
         } else {
           await fs.writeFile(template.replace("%(ext)s", template.includes("-video.") ? "mp4" : "m4a"), "mock-media");
         }
         return { stdout: "", stderr: "" };
+      }
+      if (command === "python" && args[0]?.endsWith("whisper_asr.py")) {
+        counts.whisper++;
+        if (asrMode === "local-error") throw new Error("模拟本地转写失败 /private/path");
+        const segments = asrMode === "local-empty" ? [] : [{ start: 0, end: 5, text: "本地转写证据" }];
+        return { stdout: JSON.stringify({ text: segments.map((segment) => segment.text).join(" "), segments, language: "zh" }), stderr: "" };
       }
       if (command === "ffmpeg") {
         const template = args.at(-1);
@@ -91,6 +103,10 @@ export function installMockUpstream() {
   });
   Object.defineProperty(childProcess, "execFile", { value: replacement, configurable: true, writable: true });
   globalThis.fetch = async (url, options) => {
+    if (String(url).endsWith("/audio/transcriptions")) {
+      counts.cloud++;
+      return asrMode === "cloud-success" ? Response.json({ text: "云端转写证据。" }) : Response.json({ error: "模拟云端故障" }, { status: 503 });
+    }
     const body = JSON.parse(options.body);
     if (String(url).endsWith("/embeddings")) {
       counts.embedding++;
