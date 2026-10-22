@@ -1,13 +1,6 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import "./fonts/fonts.css";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-});
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-});
 
 export const metadata: Metadata = {
   title: "VidSnap - AI 视频理解助手",
@@ -21,11 +14,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {children}
-      </body>
+      <body className="antialiased">{children}</body>
     </html>
   );
 }

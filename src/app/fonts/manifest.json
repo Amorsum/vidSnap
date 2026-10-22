@@ -1,0 +1,60 @@
+{
+  "source": "Existing Google Fonts Geist / Geist Mono assets; unchanged font bytes from validated deployment",
+  "files": [
+    {
+      "file": "geist-cyrillic-ext.woff2",
+      "sha256": "b7a545bbb08256bd809f11cfe66d88da3e22d169ea4407737b1ef0ec1ed3d791",
+      "bytes": 7252
+    },
+    {
+      "file": "geist-cyrillic.woff2",
+      "sha256": "6129fc8571c3e0cb0a4c41f5160c974a843b055009dc4ad8858bd808e18a2d86",
+      "bytes": 14900
+    },
+    {
+      "file": "geist-vietnamese.woff2",
+      "sha256": "f689f638f29fff460a2d5749edb5d5c38d7bef0389f32032d871f23fc6ebb008",
+      "bytes": 7968
+    },
+    {
+      "file": "geist-latin-ext.woff2",
+      "sha256": "58a6b173d5ca1dec92166ea3c6cb1a84a4144556d10928ac14e8e6b40e4787bd",
+      "bytes": 16540
+    },
+    {
+      "file": "geist-latin.woff2",
+      "sha256": "9b6f5ff45b278c744b5f379a2c4ecbaf858a842b8eaf82ac8d21b699ca16c608",
+      "bytes": 29288
+    },
+    {
+      "file": "geist-mono-cyrillic-ext.woff2",
+      "sha256": "e27f657e38d52887baa3b6b2f812bef93dfdd356f0810e40edd4ee284cc7e9f6",
+      "bytes": 6204
+    },
+    {
+      "file": "geist-mono-cyrillic.woff2",
+      "sha256": "75b3bedbebc35f347c0ae3b416aa871941555357e7b0f83767eb5987875589ed",
+      "bytes": 12872
+    },
+    {
+      "file": "geist-mono-symbols.woff2",
+      "sha256": "d67e4a94ba498635f764ddca7d1ec4271f5642f032eb24b426764480f66f8497",
+      "bytes": 5892
+    },
+    {
+      "file": "geist-mono-vietnamese.woff2",
+      "sha256": "16e1d48b6dd29eb240aec5db36184eb182933c082cd43de7f35af686d58087d2",
+      "bytes": 7728
+    },
+    {
+      "file": "geist-mono-latin-ext.woff2",
+      "sha256": "745994b5cd950ec201b66526375f057d540847cccfc70f4f24f5f571d26d3923",
+      "bytes": 14712
+    },
+    {
+      "file": "geist-mono-latin.woff2",
+      "sha256": "5f3d6ad60f29d6cb708414ec6887163d63bf197377ef5417d2483ff31ace6c3b",
+      "bytes": 23108
+    }
+  ]
+}

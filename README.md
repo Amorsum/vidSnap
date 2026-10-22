@@ -4,7 +4,7 @@
 
 独立从 0 到 1 构建的 AI 视频理解应用，打通「链接解析 → 音视频下载 → 三级降级转写 → 关键帧视觉理解 → LLM 结构化总结 → Agentic RAG 追问」全链路，支持 YouTube / 抖音双平台。
 
-> **优化进展（2026-10-22）**：[完整优化方案](docs/OPTIMIZATION_PLAN.md) 已推进 M0 四批实现：接口、会话及资源隔离，缓存证据与帧索引，媒体出站边界，以及 [Whisper 单进程故障恢复](docs/WHISPER_RECOVERY.md)。本地转写增加握手、请求 ID、排队与总预算、退出恢复及串行脚本兜底；真实部署网络/推理冒烟仍待补，不能宣称 M0 整体验收通过。当前仍依赖个人电脑在线；云端转写时间戳为估算，主总结的 Claude 流式切换尚不完整。
+> **优化进展（2026-10-22）**：[完整优化方案](docs/OPTIMIZATION_PLAN.md) 的 M0 已完成前四批并推送 demo；第五批新增 [运行环境检查](docs/RUNTIME_CHECKS.md)，验证受控平台连接和真实缓存 tiny 常驻转写，并把 Geist 字体固定到本地，解决构建依赖 Google Fonts 网络的问题。真实视频下载、云端 API 及部署出站策略仍待验收，不能宣称 M0 整体完成。当前仍依赖个人电脑在线；云端转写时间戳为估算，主总结的 Claude 流式切换尚不完整。
 
 ## 演示
 
@@ -147,10 +147,13 @@ npm run dev
 npm run lint
 npx tsc --noEmit
 npm run test:security
+npm run check:runtime
 npm run build
 ```
 
 `test:security` 使用独立测试进程、限流桶、模拟媒体/模型响应和真实临时目录，覆盖接口保护、输入边界与历史接口文件清理，不需要真实密钥或付费调用。当前未提供 `npm test`。已有生产服务运行时，在独立项目副本执行构建，避免改写服务使用的 `.next`。
+
+`check:runtime` 默认不联网、不加载模型或读取 Cookie 内容；`--network` 和 `--whisper-smoke` 显式启用平台连接与缓存 tiny 本地推理。需要媒体代理时可使用 `--proxy http://127.0.0.1:7890` 覆盖本次检查，详见 [环境检查说明](docs/RUNTIME_CHECKS.md)。字体已随仓库本地提供，正常构建不再依赖 Google Fonts 或字体响应夹具。
 
 接口调用需要保存服务端签发的会话 Cookie；追问与删除应回传 `analysisId` 和 `videoId`。内容默认保留 1 小时，帧默认 2 小时，缓存命中不续期；详见 [匿名会话与分析资源](docs/API_SESSIONS.md)。
 

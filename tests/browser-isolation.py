@@ -24,9 +24,20 @@ async def workspace(browser, viewport, question):
     context = await browser.new_context(viewport=viewport)
     page = await context.new_page()
     errors = []
+    external_fonts = []
     page.on("pageerror", lambda error: errors.append(str(error)))
+    page.on("request", lambda request: external_fonts.append(request.url) if "fonts.googleapis.com" in request.url or "fonts.gstatic.com" in request.url else None)
     initial_response = await page.goto(BASE, wait_until="networkidle")
     assert initial_response and initial_response.headers.get("x-vidsnap-test-mocks") == "1", "只允许对显式加载测试替身的隔离服务执行"
+    font_state = await page.evaluate("""async () => {
+        const text = 'VidSnap 012 Ā Ạ Ж Ѡ ⎸';
+        const sans = await document.fonts.load('16px Geist', text);
+        const mono = await document.fonts.load('16px "Geist Mono"', text);
+        await document.fonts.ready;
+        return {sans: sans.filter(font => font.status === 'loaded').length,
+            mono: mono.filter(font => font.status === 'loaded').length};
+    }""")
+    assert font_state["sans"] == 5 and font_state["mono"] == 6, f"字体子集未全部解码：{font_state}"
     await page.get_by_placeholder("请输入访问码").fill("wrong-test-code")
     async with page.expect_response(lambda response: response.url.endswith("/api/verify")) as rejected:
         await page.get_by_role("button", name="进入 VidSnap").click()
@@ -87,6 +98,7 @@ async def workspace(browser, viewport, question):
     await page.get_by_text("模拟追问回答", exact=False).last.wait_for(state="visible")
     assert await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "页面横向溢出"
     assert not errors, f"浏览器运行异常：{errors}"
+    assert not external_fonts, "本地字体不应请求 Google Fonts"
     return context, page, result, data
 
 
@@ -110,7 +122,7 @@ async def main():
             assert (await api(second, "/api/process", {"videoId": b["video"]["id"], "analysisId": b["analysisId"]}, "DELETE"))["status"] == 200
             await first_context.close()
             await second_context.close()
-            print(json.dumps({"desktop": "passed", "mobile": "passed", "gate_invalid_code": "rejected", "stored_code_reload": "passed", "cookie_http_only": "passed", "frames": "passed", "followup": "passed", "cross_session_access": "rejected", "owned_delete": "passed", "console_runtime_errors": 0}))
+            print(json.dumps({"desktop": "passed", "mobile": "passed", "local_font_subsets": 11, "external_font_requests": 0, "gate_invalid_code": "rejected", "stored_code_reload": "passed", "cookie_http_only": "passed", "frames": "passed", "followup": "passed", "cross_session_access": "rejected", "owned_delete": "passed", "console_runtime_errors": 0}))
         finally:
             for page, result in RESOURCES:
                 if not page.is_closed():
