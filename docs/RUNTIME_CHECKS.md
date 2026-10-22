@@ -47,4 +47,24 @@ npm run check:runtime -- --network --proxy http://127.0.0.1:7890 --whisper-smoke
 
 构建仍应在隔离副本执行以免影响现有 `.next`。现在可以在没有 Google 字体网络/代理、没有 `NEXT_FONT_GOOGLE_MOCKED_RESPONSES` 的情况下验证真实字体生产构建。静态检查之外，还应在浏览器确认子集解码、无外部字体请求和桌面/移动端交互。
 
-本轮结果见 [2026-10-22 环境验收报告](test-reports/TEST-20261022-M0-RUNTIME.md)。这批不调用付费模型，不代替真实视频、云端 API、长音频或完整部署出站策略验收；M0 尚未整体验收完成，下一步补媒体解析/下载小样本，再进入 M1 性能基线。
+第五批结果见 [2026-10-22 环境验收报告](test-reports/TEST-20261022-M0-RUNTIME.md)。以下第六批补充真实媒体小样本；云端 API、长音频和部署出站策略仍待验收，M0 尚未整体验收完成。
+
+## 固定公开短视频验收
+
+```powershell
+# 此命令会联网，使用当前 MEDIA_UPSTREAM_PROXY；默认不读取 Cookie、不调用模型。
+npm run check:media
+
+# 只覆盖本次代理配置，输出机器可解析 JSON。
+npm run --silent check:media -- --proxy http://127.0.0.1:7890 --json
+```
+
+样本固定为 YouTube 的 `jNQXAC9IVRw`，不接收任意 URL。所有 yt-dlp 调用复用现有 Python 出站边界，忽略用户配置和插件，不读取项目或浏览器 Cookie。元信息必须是同一 ID、非直播且时长在 0—30 秒以内，失败后跳过下载。
+
+字幕检查固定选择手动英文 VTT，解析复用生产 `parseBuiltinSubtitle`，检查非空段落及时间范围；本地文件读取前检查不超过 512 KiB。音频仅选择元信息中声明了大小且不超过 8 MiB 的单一 HTTPS 音轨，不下载分片或视频。下载再加 `--max-filesize`、128 KiB/s 限速和零重试，完成后检查实际文件及 FFprobe 的音轨/时长。这里的文件大小限制依赖下载器的响应检查与下载后校验，不是操作系统磁盘配额。
+
+元信息、字幕、音频预算依次为 65、30、50 秒，复用边界进程额外 10 秒收尾预算；FFprobe 另有 10 秒。本命令沿用当前 yt-dlp 的 Node JS runtime 支持，不兼容过旧工具时如实失败。原始 JSON、带签名 URL、stderr、字幕正文和本地路径均不进入报告；403 只记为上游 HTTP 403，不直接判断为网络环境或代码缺陷。
+
+每次使用独立系统临时目录，正常/失败均清理自己的产物。字幕失败后仍检查音频，以便区分问题；缺少字幕或已知大小音轨记为 skip。只有元信息、字幕、音频、清理全部 pass 才返回 `media_sample_verified: true` 和退出码 0，否则退出码 1。`full_pipeline_verified` 始终为 false；它没有经过页面/API、ASR、视觉、总结、缓存或追问，不验证生产 Cookie 配置和抖音登录态。
+
+第六批实际结果见 [真实媒体小样本报告](test-reports/TEST-20261022-M0-MEDIA.md)。这次测得的总耗时仅为诊断脚本一次运行结果，不是生产端到端性能基线或提速结论。
