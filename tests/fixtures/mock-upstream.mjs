@@ -57,6 +57,16 @@ export function installMockUpstream() {
   const replacement = () => { throw new Error("禁止调用真实媒体进程"); };
   Object.defineProperty(replacement, promisify.custom, {
     value: async (command, args) => {
+      if (command === "python" && args[0]?.endsWith("media_network.py") && args[1] === "subtitle") {
+        counts.download++;
+        await checkpoint("download");
+        const output = args[3];
+        if (failure === "download") throw new Error("模拟字幕下载失败");
+        const content = asrMode === "empty-subtitle" ? "" : asrMode === "invalid-subtitle" ? "not a subtitle"
+          : "1\n00:00:00,000 --> 00:00:05,000\n这是隔离测试字幕。\n\n2\n00:00:05,000 --> 00:00:10,000\n第二段说明。\n";
+        await fs.writeFile(output, content);
+        return { stdout: "", stderr: "" };
+      }
       if (command === "python" && args[0]?.endsWith("media_network.py") && args[1] === "yt-dlp") {
         command = "yt-dlp";
         args = args.slice(3);
@@ -67,7 +77,10 @@ export function installMockUpstream() {
         const videoId = input.searchParams.get("v");
         if (args.includes("--dump-json")) {
           counts.metadata++;
-          return { stdout: JSON.stringify({ id: videoId, title: "隔离测试视频", duration: 20, thumbnail: "", uploader: "测试作者" }), stderr: "" };
+          await checkpoint("metadata");
+          const withSubtitle = !asrMode || ["empty-subtitle", "invalid-subtitle"].includes(asrMode);
+          const subtitles = withSubtitle ? { "zh-Hans": [{ ext: "srt", url: "https://www.youtube.com/api/timedtext?lang=zh-Hans" }] } : {};
+          return { stdout: JSON.stringify({ id: videoId, title: "隔离测试视频", duration: 20, thumbnail: "", uploader: "测试作者", subtitles, automatic_captions: {} }), stderr: "" };
         }
         counts.download++;
         const template = args[args.indexOf("--output") + 1];
@@ -80,7 +93,9 @@ export function installMockUpstream() {
           if (asrMode) return { stdout: "", stderr: "" };
           await fs.writeFile(`${template}.zh-Hans.srt`, "1\n00:00:00,000 --> 00:00:05,000\n这是隔离测试字幕。\n\n2\n00:00:05,000 --> 00:00:10,000\n第二段说明。\n");
         } else {
-          await fs.writeFile(template.replace("%(ext)s", template.includes("-video.") ? "mp4" : "m4a"), "mock-media");
+          const output = template.replace("%(ext)s", template.includes("-video.") ? "mp4" : "m4a");
+          await fs.writeFile(output, "mock-media");
+          return { stdout: JSON.stringify(output) + "\n", stderr: "" };
         }
         return { stdout: "", stderr: "" };
       }
@@ -111,6 +126,7 @@ export function installMockUpstream() {
     if (String(url).endsWith("/embeddings")) {
       counts.embedding++;
       await checkpoint("embedding");
+      if (failure === "embedding") return Response.json({ error: "mock unavailable" }, { status: 503 });
       return Response.json({ data: body.input.map((_, index) => ({ index, embedding: [1, 0, 0] })) });
     }
     if (typeof body.messages?.[0]?.content !== "string") {

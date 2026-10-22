@@ -40,7 +40,7 @@ before(async () => {
         outputDirectories.push(path.dirname(output));
         await fs.writeFile(output, "fake-audio");
         if (failure === "download") throw new Error("内部下载错误 /server/private/file");
-        return { stdout: "", stderr: "" };
+        return { stdout: JSON.stringify(output) + "\n", stderr: "" };
       }
       if (command === "python") {
         assert.equal(await fs.readFile(args[1], "utf8"), "fake-audio");

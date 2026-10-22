@@ -129,7 +129,8 @@ def request_url(url, scope):
         path = parts.path or "/"
         if parts.query:
             path += "?" + parts.query
-        connection.request("GET", path, headers={"User-Agent": USER_AGENT, "Referer": "https://www.douyin.com/"})
+        referer = "https://www.youtube.com/" if scope == "youtube" else "https://www.douyin.com/"
+        connection.request("GET", path, headers={"User-Agent": USER_AGENT, "Referer": referer})
         yield connection.getresponse()
     finally:
         connection.close()
@@ -167,16 +168,18 @@ def resolve_douyin_url(url, max_redirects=5):
     raise NetworkPolicyError("短链接跳转次数超限")
 
 
-def download_media(url, output, max_bytes=512 * 1024 * 1024):
+def download_media(url, output, max_bytes=512 * 1024 * 1024, *, scope="douyin", timeout_seconds=110):
     visited = set()
-    deadline = time.monotonic() + 110
+    deadline = time.monotonic() + timeout_seconds
     try:
         for hop in range(6):
-            validate_url(url, "douyin")
+            if time.monotonic() >= deadline:
+                raise TimeoutError("媒体下载超时")
+            validate_url(url, scope)
             if url in visited:
                 raise NetworkPolicyError("媒体地址循环跳转")
             visited.add(url)
-            with request_url(url, "douyin") as response:
+            with request_url(url, scope) as response:
                 if response.status in (301, 302, 303, 307, 308):
                     location = response.getheader("Location")
                     if not location or hop == 5:
@@ -345,6 +348,9 @@ def main():
             return run_yt_dlp(sys.argv[3:], int(sys.argv[2]))
         if sys.argv[1] == "download":
             download_media(sys.argv[2], sys.argv[3])
+            return 0
+        if sys.argv[1] == "subtitle":
+            download_media(sys.argv[2], sys.argv[3], max_bytes=4 * 1024 * 1024, scope="youtube", timeout_seconds=20)
             return 0
         raise ValueError("不支持的媒体命令")
     except Exception as error:

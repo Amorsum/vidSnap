@@ -68,3 +68,5 @@ npm run --silent check:media -- --proxy http://127.0.0.1:7890 --json
 每次使用独立系统临时目录，正常/失败均清理自己的产物。字幕失败后仍检查音频，以便区分问题；缺少字幕或已知大小音轨记为 skip。只有元信息、字幕、音频、清理全部 pass 才返回 `media_sample_verified: true` 和退出码 0，否则退出码 1。`full_pipeline_verified` 始终为 false；它没有经过页面/API、ASR、视觉、总结、缓存或追问，不验证生产 Cookie 配置和抖音登录态。
 
 第六批实际结果见 [真实媒体小样本报告](test-reports/TEST-20261022-M0-MEDIA.md)。这次测得的总耗时仅为诊断脚本一次运行结果，不是生产端到端性能基线或提速结论。
+
+后续新增 [分阶段计时与真实文字路由验收](PIPELINE_TIMING.md)：可直接验证实际总结、追问、缓存复用和删除；会调用真实付费模型，使用隔离 Cookie/临时目录，区别于默认只读环境检查及仅媒体下载的 `check:media`。

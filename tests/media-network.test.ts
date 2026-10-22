@@ -10,6 +10,7 @@ const original = childProcess.execFile;
 const calls: { command: string; args: string[]; timeout: number }[] = [];
 let runYtDlp: typeof import("../src/lib/media-network").runYtDlp;
 let downloadPublicMedia: typeof import("../src/lib/media-network").downloadPublicMedia;
+let downloadPublicSubtitle: typeof import("../src/lib/media-network").downloadPublicSubtitle;
 let downloadDouyinVideoAndAudio: typeof import("../src/lib/douyin-processor").downloadDouyinVideoAndAudio;
 
 before(async () => {
@@ -21,8 +22,14 @@ before(async () => {
     },
   });
   Object.defineProperty(childProcess, "execFile", { value: replacement, configurable: true, writable: true });
-  ({ runYtDlp, downloadPublicMedia } = await import("../src/lib/media-network"));
+  ({ runYtDlp, downloadPublicMedia, downloadPublicSubtitle } = await import("../src/lib/media-network"));
   ({ downloadDouyinVideoAndAudio } = await import("../src/lib/douyin-processor"));
+});
+
+test("字幕直链下载复用 Python 出站边界及明确预算", async () => {
+  await downloadPublicSubtitle("https://www.youtube.com/api/timedtext?sig=fixture", "caption.vtt");
+  assert.deepEqual(calls.at(-1)?.args.slice(1), ["subtitle", "https://www.youtube.com/api/timedtext?sig=fixture", "caption.vtt"]);
+  assert.equal(calls.at(-1)?.timeout, 45000);
 });
 
 after(() => { childProcess.execFile = original; });

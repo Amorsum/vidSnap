@@ -4,7 +4,11 @@ import fs from "fs/promises";
 import { existsSync } from "fs";
 import { detectPlatform, normalizeVideoUrl } from "./url-utils";
 import { withMediaWorkspace } from "./media-workspace";
-import { runYtDlp } from "./media-network";
+import { runYtDlp, downloadPublicSubtitle } from "./media-network";
+import { parseBuiltinSubtitle } from "./transcriber";
+import { isValidVideoId } from "./request-validation";
+import { selectSubtitleTracks, SubtitleTrackHandoff, type SubtitleSelection } from "./subtitle-tracks";
+import { resolveMediaOutput } from "./media-output";
 
 const TEMP_DIR = path.join(os.tmpdir(), "vidsnap");
 const COOKIES_FILE = path.join(process.cwd(), "cookies.txt");
@@ -20,10 +24,14 @@ export interface VideoInfo {
   uploader: string;
 }
 
+const subtitleHandoff = new SubtitleTrackHandoff<VideoInfo>();
+
 export interface ProcessResult {
   info: VideoInfo;
   audioPath: string;
   subtitlePath: string | null;
+  /** 仅保留语言和轨道来源，绝不携带带签名的下载地址。 */
+  subtitle?: SubtitleSelection;
   /** 视频源文件路径（仅视觉理解启用时保留，供抽关键帧使用） */
   videoPath?: string | null;
 }
@@ -88,18 +96,21 @@ export async function extractVideoInfo(url: string): Promise<VideoInfo> {
   const { stdout } = await runYtDlp(args);
 
   const data = JSON.parse(stdout);
-  return {
+  if (!isValidVideoId(data.id)) throw new Error("视频元信息中的 ID 无效");
+  const info: VideoInfo = {
     id: data.id,
     title: data.title,
     duration: data.duration,
     thumbnail: data.thumbnail,
     uploader: data.uploader || data.channel || data.uploader_id || data.creator || "Unknown",
   };
+  subtitleHandoff.remember(info, url, selectSubtitleTracks(data));
+  return info;
 }
 
 /**
  * 下载音频（仅音频，不下载视频）
- * 不再尝试下载字幕，统一使用 Whisper ASR 转写
+ * 本函数只负责音频，转写由调用方选择云端或本地模型。
  * info 可由调用方预先提取（如 tryDownloadSubtitles 已拿到），避免重复 --dump-json
  */
 export async function downloadAudio(url: string, preInfo?: VideoInfo, directory = TEMP_DIR): Promise<ProcessResult> {
@@ -110,18 +121,21 @@ export async function downloadAudio(url: string, preInfo?: VideoInfo, directory 
   if (platform === "youtube") {
     // YouTube 走 yt-dlp 流程
     const info = preInfo ?? (await extractVideoInfo(url));
+    if (!isValidVideoId(info.id)) throw new Error("视频元信息中的 ID 无效");
+    subtitleHandoff.take(info, url);
     const outputTemplate = path.join(directory, `${info.id}.%(ext)s`);
 
-    await runYtDlp([
+    const { stdout } = await runYtDlp([
       "-f", "bestaudio[ext=m4a]/bestaudio",
       "--output", outputTemplate,
       "--no-playlist",
+      "--no-simulate", "--print", "after_move:%(filepath)j",
       ...(await getCommonYtDlpArgs()),
       ...getCookieArgs(),
       url,
     ]);
 
-    const audioPath = path.join(directory, `${info.id}.m4a`);
+    const audioPath = await resolveMediaOutput(stdout, directory, info.id, ["m4a", "webm", "opus", "ogg", "mp3", "mp4", "flac", "wav"]);
 
     return { info, audioPath, subtitlePath: null };
   } else {
@@ -141,24 +155,30 @@ export async function downloadLowResVideo(url: string, preInfo?: VideoInfo, dire
   url = normalizeVideoUrl(url);
   await ensureTempDir();
   const info = preInfo ?? (await extractVideoInfo(url));
+  if (!isValidVideoId(info.id)) throw new Error("视频元信息中的 ID 无效");
+  subtitleHandoff.take(info, url);
   const outputTemplate = path.join(directory, `${info.id}-video.%(ext)s`);
 
-  await runYtDlp([
+  const { stdout } = await runYtDlp([
     "-f", "best[height<=240]/bestvideo[height<=240]/best[height<=144]",
     "--output", outputTemplate,
     "--no-playlist",
+    "--no-simulate", "--print", "after_move:%(filepath)j",
     ...(await getCommonYtDlpArgs()),
     ...getCookieArgs(),
     url,
   ], 120000);
 
-  // yt-dlp 实际扩展名可能为 mp4/webm/mkv，按前缀探测实际文件
-  const files = await fs.readdir(directory);
-  const videoFile = files.find((f) => f.startsWith(`${info.id}-video.`));
-  if (!videoFile) {
-    throw new Error("视频流下载后未找到文件");
-  }
-  return path.join(directory, videoFile);
+  return resolveMediaOutput(stdout, directory, `${info.id}-video`, ["mp4", "webm", "mkv", "m4v", "3gp"]);
+}
+
+async function usableSubtitle(file: string, duration: number): Promise<boolean> {
+  const stat = await fs.lstat(file);
+  if (!stat.isFile() || stat.size === 0 || stat.size > 4 * 1024 * 1024) return false;
+  const transcript = await parseBuiltinSubtitle(file);
+  return transcript.text.replace(/<[^>]*>/g, "").trim().length > 0 && transcript.segments.length > 0
+    && transcript.segments.every((segment) => Number.isFinite(segment.start) && Number.isFinite(segment.end)
+      && segment.start >= 0 && segment.end > segment.start && (!(duration > 0) || segment.end <= duration + 2));
 }
 
 /**
@@ -169,57 +189,57 @@ export async function downloadLowResVideo(url: string, preInfo?: VideoInfo, dire
 export async function tryDownloadSubtitles(url: string, preInfo?: VideoInfo, directory = TEMP_DIR, assertActive?: () => void): Promise<{
   info: VideoInfo;
   subtitlePath: string | null;
+  subtitle?: SubtitleSelection;
 }> {
   url = normalizeVideoUrl(url);
   await ensureTempDir();
   const info = preInfo ?? (await extractVideoInfo(url));
-  const outputTemplate = path.join(directory, `${info.id}`);
-
-  // 先尝试手动字幕，再尝试自动字幕
-  // 扩大语言范围，提高命中率（命中 = 跳过 Whisper，省 10-60s）
-  const subtitleStrategies = [
-    ["--write-subs", "--sub-lang", "zh-Hans,zh-CN,zh-TW,zh,en,ja,ko"],
-    ["--write-auto-subs", "--sub-lang", "zh-Hans,zh,en,ja,ko,de,fr,es,pt,ru,ar"],
-  ];
-
-  for (const strategy of subtitleStrategies) {
+  if (!isValidVideoId(info.id)) throw new Error("视频元信息中的 ID 无效");
+  let tracks = subtitleHandoff.take(info, url);
+  if (!tracks) {
+    // 上下文被复制、交接过期或容量淘汰时重新解析，不复用过期签名。
     assertActive?.();
     try {
-      await runYtDlp([
-        "--skip-download",
-        ...strategy,
-        "--convert-subs", "srt",
-        "--output", outputTemplate,
-        "--no-playlist",
-        ...(await getCommonYtDlpArgs()),
-        ...getCookieArgs(),
-        url,
-      ], 30000);
-      assertActive?.();
-
-      // 检查是否下载了字幕文件
-      const possiblePaths = [
-            path.join(directory, `${info.id}.zh-Hans.srt`),
-            path.join(directory, `${info.id}.zh-CN.srt`),
-            path.join(directory, `${info.id}.zh-TW.srt`),
-            path.join(directory, `${info.id}.zh.srt`),
-            path.join(directory, `${info.id}.en.srt`),
-            path.join(directory, `${info.id}.ja.srt`),
-            path.join(directory, `${info.id}.ko.srt`),
-            path.join(directory, `${info.id}.de.srt`),
-            path.join(directory, `${info.id}.fr.srt`),
-            path.join(directory, `${info.id}.es.srt`),
-          ];
-      for (const p of possiblePaths) {
-        if (existsSync(p)) {
-          return { info, subtitlePath: p };
-        }
-      }
+      const refreshed = await extractVideoInfo(url);
+      tracks = subtitleHandoff.take(refreshed, url);
+      if (refreshed.id !== info.id) return { info, subtitlePath: null };
     } catch {
       assertActive?.();
-      // 该策略失败，尝试下一个
-      continue;
+      return { info, subtitlePath: null };
     }
+  }
+
+  for (const track of tracks ?? []) {
+    assertActive?.();
+    const file = path.join(directory, `${info.id}.${track.language}.${track.format}`);
+    try {
+      await downloadPublicSubtitle(track.url, file);
+      assertActive?.();
+      const valid = await usableSubtitle(file, info.duration);
+      assertActive?.();
+      if (valid) return { info, subtitlePath: file, subtitle: { language: track.language, kind: track.kind, delivery: "direct" } };
+    } catch {
+      assertActive?.();
+      // 轨道失效/空文件/解析失败后尝试选定自动轨道，仍不成功则交给音频转写。
+    }
+    await fs.unlink(file).catch(() => {});
+  }
+
+  // 直链可能需要 Cookie 或已失效：最多一次原有下载器兜底，仍只请求选中的单轨。
+  const fallback = tracks?.[0];
+  if (fallback) {
+    const file = path.join(directory, `${info.id}.${fallback.language}.${fallback.format}`);
+    assertActive?.();
+    try {
+      await runYtDlp(["--skip-download", fallback.kind === "manual" ? "--write-subs" : "--write-auto-subs",
+        "--sub-langs", `^${fallback.language}$`, "--sub-format", fallback.format,
+        "--output", path.join(directory, info.id), "--no-playlist", ...(await getCommonYtDlpArgs()), ...getCookieArgs(), url], 30000);
+      assertActive?.();
+      const valid = await usableSubtitle(file, info.duration);
+      assertActive?.();
+      if (valid) return { info, subtitlePath: file, subtitle: { language: fallback.language, kind: fallback.kind, delivery: "yt-dlp" } };
+    } catch { assertActive?.(); }
+    await fs.unlink(file).catch(() => {});
   }
 
   return { info, subtitlePath: null };

@@ -3,6 +3,7 @@ import { before, after, test } from "node:test";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { NextRequest } from "next/server";
+import type { PipelineTimings } from "../src/lib/pipeline-timing";
 
 const videoId = "dQw4w9WgXcQ";
 const created = new Set<string>();
@@ -26,7 +27,7 @@ interface ProcessData {
   cached: boolean;
   transcriptSource: string;
   transcriptSegments: { start: number; end: number; text: string }[];
-  metrics: { usage: unknown; cost: unknown };
+  metrics: { usage: unknown; cost: unknown; totalMs: number; summarizeMs: number; timings: PipelineTimings };
 }
 
 before(async () => {
@@ -75,6 +76,108 @@ async function processFor(cookie = "") {
 function ask(data: ProcessData, cookie: string, question: string) {
   return followup.POST(request({ videoId, analysisId: data.analysisId, question }, cookie));
 }
+
+test("处理计时覆盖实际阶段，缓存请求只记录本次读取而不复制生成耗时", async () => {
+  const original = await processFor();
+  const timings = original.data.metrics.timings;
+  for (const stage of ["metadata", "cache_lookup", "workspace", "download", "transcript", "vision", "summary", "embedding", "persist"] as const) {
+    assert.equal(timings.stages[stage]?.outcome, "completed", stage);
+    assert.ok(timings.stages[stage]!.ms >= 0);
+  }
+  assert.equal(original.data.metrics.summarizeMs, timings.stages.summary?.ms);
+  assert.ok(timings.firstTokenMs! <= timings.summaryReadyMs!);
+  assert.ok(timings.summaryReadyMs! <= timings.resultReadyMs!);
+  const counts = mockState.counts();
+  const cached = await processFor(original.cookie);
+  assert.equal(cached.data.cached, true);
+  assert.deepEqual(Object.keys(cached.data.metrics.timings.stages).sort(), ["cache_lookup", "cache_restore"]);
+  assert.deepEqual(mockState.counts(), counts, "有效缓存不能调用平台解析、媒体或模型");
+  assert.equal(cached.data.metrics.timings.firstTokenMs, null);
+  assert.equal(cached.data.metrics.timings.summaryReadyMs, null);
+});
+
+test("同会话规范链接的不同分享形式复用缓存，其他会话仍需独立解析", async () => {
+  const initial = await processFor();
+  const before = mockState.counts();
+  const response = await main.POST(request({ url: `https://www.youtube.com/watch?v=${videoId}&feature=share` }, initial.cookie));
+  const events = (await response.text()).split("\n\n").filter((line) => line.startsWith("data: ")).map((line) => JSON.parse(line.slice(6)));
+  assert.equal(events.find((event) => event.type === "result").data.analysisId, initial.data.analysisId);
+  assert.equal(mockState.counts().metadata, before.metadata);
+  const stranger = await processFor();
+  assert.notEqual(stranger.data.analysisId, initial.data.analysisId);
+  assert.equal(mockState.counts().metadata, before.metadata + 1);
+});
+
+for (const expires of ["analysis", "cache"]) {
+  test(`${expires} 过期后重新解析和生成，不复用旧结果或续期旧分析`, async () => {
+    const initial = await processFor();
+    const analysis = analyses.getOwnedAnalysis(sessions.getSessionId(request({}, initial.cookie)), videoId, initial.data.analysisId)!;
+    const oldDeadline = analysis.contentExpiresAt;
+    if (expires === "analysis") analysis.contentExpiresAt = Date.now() - 1;
+    else cache.getCachedResult(initial.data.analysisId)!.expiresAt = Date.now() - 1;
+    const deadlineAfterExpiry = analysis.contentExpiresAt;
+    const before = mockState.counts();
+    const fresh = await processFor(initial.cookie);
+    assert.equal(fresh.data.cached, false);
+    assert.notEqual(fresh.data.analysisId, initial.data.analysisId);
+    assert.equal(mockState.counts().metadata, before.metadata + 1);
+    assert.equal(analysis.contentExpiresAt, deadlineAfterExpiry);
+    if (expires === "cache") assert.equal(analysis.contentExpiresAt, oldDeadline);
+  });
+}
+
+test("平台解析等待期间另一个同会话请求完成时，复查缓存避免重复总结", async () => {
+  const verified = await verify.POST(request({ code: "isolation-test-only" }));
+  const cookie = cookieFor(verified);
+  const summaryPause = mockState.pauseNext("summary");
+  let metadataPause: ReturnType<typeof mockState.pauseNext> | undefined;
+  try {
+    const first = processFor(cookie);
+    await summaryPause.started;
+    metadataPause = mockState.pauseNext("metadata");
+    const second = processFor(cookie);
+    await metadataPause.started;
+    summaryPause.release();
+    const completed = await first;
+    const counts = mockState.counts();
+    metadataPause.release();
+    const reused = await second;
+    assert.equal(reused.data.cached, true);
+    assert.equal(reused.data.analysisId, completed.data.analysisId);
+    assert.deepEqual(mockState.counts(), counts);
+  } finally { summaryPause.release(); metadataPause?.release(); }
+});
+
+test("向量生成失败记录降级，仍返回总结且不假造未执行的视觉耗时", async () => {
+  const previousVision = process.env.VISION_ENABLED;
+  process.env.VISION_ENABLED = "0";
+  mockState.fail("embedding");
+  try {
+    const result = await processFor();
+    assert.equal(result.data.metrics.timings.stages.embedding?.outcome, "degraded");
+    assert.equal(result.data.metrics.timings.stages.vision, undefined);
+    assert.equal(result.data.frames.length, 0);
+  } finally {
+    mockState.fail();
+    if (previousVision === undefined) delete process.env.VISION_ENABLED;
+    else process.env.VISION_ENABLED = previousVision;
+  }
+});
+
+test("总结失败的 SSE 保留失败阶段计时，不发送 result 就绪时间", async () => {
+  mockState.fail("summary");
+  try {
+    const response = await main.POST(request({ url: `https://youtu.be/${videoId}` }));
+    const events = (await response.text()).split("\n\n").filter((line) => line.startsWith("data: ")).map((line) => JSON.parse(line.slice(6)));
+    const id = events.find((event) => event.analysisId)?.analysisId;
+    if (id) created.add(id);
+    const error = events.find((event) => event.type === "error");
+    assert.equal(error.metrics.timings.stages.summary.outcome, "failed");
+    assert.equal(error.metrics.timings.summaryReadyMs, null);
+    assert.equal(error.metrics.timings.resultReadyMs, null);
+    assert.equal(events.some((event) => event.type === "result"), false);
+  } finally { mockState.fail(); }
+});
 
 test("匿名会话由服务器签发，陌生 cookie/body sessionId 不成为身份", async () => {
   const forged = `${sessions.SESSION_COOKIE}=${"0".repeat(64)}`;
@@ -286,6 +389,20 @@ for (const mode of ["cloud-success", "local-success"]) {
       assert.match(result.data.transcriptSegments[0].text, mode === "cloud-success" ? /云端转写/ : /本地转写/);
       assert.equal(mockState.counts().cloud, before.cloud + 1);
       assert.equal(mockState.counts().whisper, before.whisper + (mode === "local-success" ? 1 : 0));
+    } finally { mockState.asr(); }
+  });
+}
+
+for (const mode of ["empty-subtitle", "invalid-subtitle"]) {
+  test(`${mode}：字幕内容不可用时下载音频并完成转写，不误报无语音`, async () => {
+    const before = mockState.counts();
+    mockState.asr(mode);
+    try {
+      const result = await processFor();
+      assert.equal(result.data.transcriptSource, "whisper");
+      assert.equal(result.data.transcriptSegments[0].text, "本地转写证据");
+      assert.equal(mockState.counts().cloud, before.cloud + 1);
+      assert.equal(mockState.counts().whisper, before.whisper + 1);
     } finally { mockState.asr(); }
   });
 }

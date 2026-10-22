@@ -30,7 +30,7 @@ const youtubeProcessor: PlatformProcessor = {
     const sub = await tryDownloadSubtitles(url, info, directory, assertActive);
     assertActive?.();
     if (sub.subtitlePath) {
-      return { info: sub.info, audioPath: "", subtitlePath: sub.subtitlePath };
+      return { ...sub, audioPath: "" };
     }
     // 无字幕，下载音频
     const result = await downloadAudio(url, info, directory);

@@ -226,6 +226,40 @@ class MediaNetworkTests(unittest.TestCase):
             with self.assertRaises(network.NetworkPolicyError):
                 network.connect_upstream_proxy(url, "8.8.8.8", 5)
 
+    def test_20_youtube_subtitle_scope_and_partial_size_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "caption.vtt"
+            request = Mock(return_value=contextlib.nullcontext(Response(content=b"WEBVTT", length="6")))
+            with patch.object(network, "request_url", request):
+                network.download_media("https://www.youtube.com/api/timedtext", output, max_bytes=10, scope="youtube", timeout_seconds=20)
+            self.assertEqual(output.read_bytes(), b"WEBVTT")
+            request.assert_called_once_with("https://www.youtube.com/api/timedtext", "youtube")
+            with patch.object(network, "request_url", return_value=contextlib.nullcontext(Response(content=b"toolarge"))):
+                with self.assertRaises(network.NetworkPolicyError):
+                    network.download_media("https://www.youtube.com/api/timedtext", output, max_bytes=5, scope="youtube")
+            self.assertFalse(output.exists())
+            request = Mock(return_value=contextlib.nullcontext(Response(302, "https://www.douyin.com/video/1")))
+            with patch.object(network, "request_url", request), self.assertRaises(network.NetworkPolicyError):
+                network.download_media("https://www.youtube.com/api/timedtext", output, scope="youtube")
+            self.assertEqual(request.call_count, 1)
+
+    def test_21_subtitle_deadline_checked_before_request(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(network.time, "monotonic", side_effect=[0, 21]), patch.object(network, "request_url") as request:
+            with self.assertRaises(TimeoutError):
+                network.download_media("https://www.youtube.com/api/timedtext", Path(directory) / "caption.vtt", scope="youtube", timeout_seconds=20)
+            request.assert_not_called()
+
+    def test_22_subtitle_cli_has_fixed_scope_byte_and_time_limits(self):
+        with patch.object(sys, "argv", ["media_network.py", "subtitle", "https://www.youtube.com/api/timedtext", "caption.vtt"]), patch.object(network, "download_media") as download:
+            self.assertEqual(network.main(), 0)
+            download.assert_called_once_with("https://www.youtube.com/api/timedtext", "caption.vtt", max_bytes=4 * 1024 * 1024, scope="youtube", timeout_seconds=20)
+
+    def test_23_referer_follows_platform_scope(self):
+        for scope, url, referer in [("youtube", "https://www.youtube.com/api/timedtext", "https://www.youtube.com/"),
+                                    ("douyin", "https://www.douyin.com/", "https://www.douyin.com/")]:
+            with patch.object(network, "PublicHTTPSConnection") as create, network.request_url(url, scope):
+                self.assertEqual(create.return_value.request.call_args.kwargs["headers"]["Referer"], referer)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -20,3 +20,9 @@ export function downloadPublicMedia(url: string, output: string) {
     timeout: 130000, windowsHide: true, env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
   });
 }
+
+export function downloadPublicSubtitle(url: string, output: string) {
+  return execFileAsync("python", [networkScript, "subtitle", url, output], {
+    timeout: 45000, windowsHide: true, env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+  });
+}
