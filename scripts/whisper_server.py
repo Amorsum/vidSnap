@@ -60,7 +60,7 @@ def get_model(model_name: str) -> WhisperModel:
 def preprocess_audio(audio_path: str) -> str:
     fd, p = tempfile.mkstemp(suffix=".wav")
     os.close(fd)
-    subprocess.run(["ffmpeg", "-y", "-i", audio_path, "-ar", "16000", "-ac", "1", p], capture_output=True)
+    subprocess.run(["ffmpeg", "-y", "-protocol_whitelist", "file,pipe", "-i", audio_path, "-ar", "16000", "-ac", "1", p], capture_output=True)
     return p
 
 def send(data: dict):

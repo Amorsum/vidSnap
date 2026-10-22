@@ -57,6 +57,7 @@ export async function extractKeyframes(
 
   await execFileAsync("ffmpeg", [
     "-y",
+    "-protocol_whitelist", "file,pipe",
     "-i", videoPath,
     "-vf", `fps=1/${N},scale='min(480,iw)':-2`,
     "-q:v", "4",

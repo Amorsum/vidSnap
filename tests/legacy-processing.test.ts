@@ -26,6 +26,10 @@ before(async () => {
   const mockedExecFile = () => { throw new Error("禁止启动真实媒体进程"); };
   Object.defineProperty(mockedExecFile, promisify.custom, {
     value: async (command: string, args: string[]) => {
+      if (command === "python" && args[0]?.endsWith("media_network.py") && args[1] === "yt-dlp") {
+        command = "yt-dlp";
+        args = args.slice(3);
+      }
       if (command === "yt-dlp") {
         if (args.includes("--version")) return { stdout: "2026.01.01", stderr: "" };
         assert.equal(args.at(-1), canonical, "只把规范 URL 交给下载器");

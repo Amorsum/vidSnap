@@ -5,6 +5,7 @@ import path from "path";
 import fs from "fs/promises";
 import type { VideoInfo } from "./video-processor";
 import { parseVideoUrl } from "./url-utils";
+import { downloadPublicMedia } from "./media-network";
 
 const execFileAsync = promisify(execFile);
 const TEMP_DIR = path.join(os.tmpdir(), "vidsnap");
@@ -35,6 +36,8 @@ export async function extractDouyinInfo(url: string): Promise<DouyinResult> {
   url = videoUrl.url;
   const { stdout, stderr } = await execFileAsync("python", [PLAYWRIGHT_SCRIPT, url], {
     timeout: 60000,
+    windowsHide: true,
+    env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
   });
 
   // stderr 包含日志，stdout 包含 JSON 结果
@@ -93,19 +96,14 @@ export async function downloadDouyinVideoAndAudio(
   const videoPath = path.join(directory, `${videoId}.mp4`);
   const audioPath = path.join(directory, `${videoId}.m4a`);
 
-  // 抖音直链 yt-dlp 无法下载（403），直接用 ffmpeg
-  await execFileAsync("ffmpeg", [
-    "-y",
-    "-headers", "Referer: https://www.douyin.com/",
-    "-i", videoUrl,
-    "-c", "copy",
-    videoPath,
-  ], { timeout: 120000 });
+  // 直链与每次跳转均校验域名/DNS 并固定连接 IP；FFmpeg 只接触本地文件。
+  await downloadPublicMedia(videoUrl, videoPath);
   assertActive?.();
 
   // 用 ffmpeg 提取音频
   await execFileAsync("ffmpeg", [
     "-y",
+    "-protocol_whitelist", "file,pipe",
     "-i", videoPath,
     "-vn",
     "-acodec", "aac",

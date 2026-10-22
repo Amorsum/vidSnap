@@ -1,6 +1,6 @@
 # VidSnap — AI 岗位简历改进方案
 
-> **2026-10-21 更新**：面向分析速度、多语言准确性、部署稳定性及安全可靠性的执行依据见 [完整优化方案](OPTIMIZATION_PLAN.md)。已完成 M0 前两批实现与验证，M0 整体及后续阶段仍未完成；本文保留历史规划和进展，冲突的现状、优先级及部署结论以新方案和当前代码为准。
+> **2026-10-21 更新**：面向分析速度、多语言准确性、部署稳定性及安全可靠性的执行依据见 [完整优化方案](OPTIMIZATION_PLAN.md)。M0 前两批已提交，第三批媒体出站边界已实现；M0 整体及后续阶段仍未完成。本文保留历史规划和进展，冲突的现状、优先级及部署结论以新方案和当前代码为准。
 
 > **目标**：在现有 Demo MVP 基础上，补齐「正式上线」所需能力，并把项目打磨成 AI 岗位简历中能讲出深度的作品。
 >
@@ -164,7 +164,9 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
-| 2026-10-21 | M0 第二批 | 新增匿名会话及分析归属、独立媒体/帧目录、删除回写守卫与对话 TTL；修复缓存画面证据恢复、稳定帧 ID 及过期帧引用；92 项回归与隔离构建通过，补充桌面/移动端浏览器验证。仍待出站边界及 Whisper 在途恢复，未进入 M1。 | src/lib/analysis-store.ts, src/app/api/process/route.ts, docs/API_SESSIONS.md | ✅ 第二批完成，用户已确认提交；M0 继续推进 |
+| 2026-10-22 | M0 第三批提交 | 用户确认提交并推送已验证的媒体出站加固；保留 main 默认主分支，后续开发继续 demo。 | docs/OPTIMIZATION_PLAN.md, docs/MEDIA_NETWORK.md | ✅ 已确认纳入本次提交 |
+| 2026-10-21 | M0 第三批 | 增加短链逐跳验证、媒体域名/DNS 与固定 IP 连接、专属代理及显式可信上游配置；FFmpeg 限制本地输入。94 项 TS + 19 项 Python、真实 Chrome 负向及本地二进制验证通过；隔离构建通过。真实平台冒烟和 Whisper 恢复仍待办。 | scripts/media_network.py, src/lib/media-network.ts, docs/MEDIA_NETWORK.md | ✅ 已实现验证，2026-10-22 获提交授权 |
+| 2026-10-21 | M0 第二批 | 新增匿名会话及分析归属、独立媒体/帧目录、删除回写守卫与对话 TTL；修复缓存画面证据恢复、稳定帧 ID 及过期帧引用；92 项回归与隔离构建通过，补充桌面/移动端浏览器验证。仍待出站边界及 Whisper 在途恢复，未进入 M1。 | src/lib/analysis-store.ts, src/app/api/process/route.ts, docs/API_SESSIONS.md | ✅ 已通过 541855b 提交并推送 demo；M0 继续推进 |
 | 2026-10-21 | M0 第一批 | 统一接口鉴权/限流、严格输入与历史接口独立媒体清理；65 项回归、18 组 HTTP 检查、lint、TypeScript 和隔离构建通过。用户确认提交推送，采用 demo 当前内容整合 main 并设为默认，保留两边历史与 master 的 B 站实现；M0 其余项目仍待实施。 | src/lib/security.ts, tests/, docs/OPTIMIZATION_PLAN.md | ✅ 首批完成，M0 继续中 |
 | 2026-10-21 | 优化方案 | 完成当前代码结构审查和完整优化方案，定义安全修复、性能、多语言、持久任务、部署、回归与验收；修正历史文档中鉴权覆盖、清理、部署和旧路由现状。仅方案编制完成，实施任务未开始。 | docs/OPTIMIZATION_PLAN.md, docs/IMPROVEMENT_PLAN.md, docs/CONTEXT.md, README.md | 📝 方案完成 |
 | 2026-09-02 | 仓库卫生 | 规范文件结构、清理与项目无关文件：删除 TRAE 比赛报名贴（docs/初赛报名贴.md）、5 个未使用的 Next.js 默认脚手架图标（public/*.svg）与遗留的 .trae/ 工具目录；同步清理 docs/CONTEXT.md 中两处对报名贴的引用 | docs/初赛报名贴.md, public/*.svg, docs/CONTEXT.md | ✅ 已完成 |

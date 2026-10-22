@@ -52,6 +52,10 @@ export function installMockUpstream() {
   const replacement = () => { throw new Error("禁止调用真实媒体进程"); };
   Object.defineProperty(replacement, promisify.custom, {
     value: async (command, args) => {
+      if (command === "python" && args[0]?.endsWith("media_network.py") && args[1] === "yt-dlp") {
+        command = "yt-dlp";
+        args = args.slice(3);
+      }
       if (command === "yt-dlp") {
         if (args.includes("--version")) return { stdout: "2026.01.01", stderr: "" };
         const input = new URL(args.at(-1));

@@ -1,6 +1,8 @@
 """用 Playwright 提取抖音视频信息（自动处理 X-Bogus 签名）"""
 import sys, json, os, re, asyncio, sqlite3, shutil, tempfile
 from playwright.async_api import async_playwright
+from media_network import media_proxy, resolve_douyin_url, validate_url, NetworkPolicyError, chromium_network_options
+from urllib.parse import urlsplit
 
 def get_douyin_cookies():
     """从 Firefox 读取抖音 cookies"""
@@ -32,49 +34,67 @@ def get_douyin_cookies():
 
 async def extract_douyin_info(url):
     """用 Playwright 加载抖音页面，拦截 API 响应获取视频数据"""
+    # 先逐跳解析短链，禁止浏览器自行展开未经验证的分享重定向。
+    url = await asyncio.to_thread(resolve_douyin_url, url)
     cookies = get_douyin_cookies()
     print(f"Loaded {len(cookies)} Douyin cookies", file=sys.stderr)
 
     video_data = None
     resolved_url = None
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            channel="chrome",
-        )
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-        )
-        await context.add_cookies(cookies)
+    with media_proxy("douyin") as proxy:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                channel="chrome",
+                **chromium_network_options(proxy),
+            )
+            try:
+                context = await browser.new_context(
+                    service_workers="block",
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+                )
+                await context.add_cookies(cookies)
 
-        page = await context.new_page()
+                async def guard_request(route):
+                    try:
+                        validate_url(route.request.url, "douyin")
+                    except NetworkPolicyError:
+                        await route.abort("blockedbyclient")
+                        return
+                    await route.continue_()
 
-        # 拦截 API 响应
-        async def handle_response(response):
-            nonlocal video_data
-            if "aweme/v1/web/aweme/detail" in response.url and response.status == 200:
-                try:
-                    body = await response.json()
-                    if body and "aweme_detail" in body:
-                        video_data = body
-                        print(f"Captured API response!", file=sys.stderr)
-                except:
-                    pass
+                await context.route("**/*", guard_request)
 
-        page.on("response", handle_response)
+                page = await context.new_page()
 
-        # 访问抖音页面
-        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        resolved_url = page.url  # 获取重定向后的真实 URL
+                # 拦截 API 响应
+                async def handle_response(response):
+                    nonlocal video_data
+                    if (urlsplit(response.url).hostname in {"www.douyin.com", "douyin.com"}
+                            and urlsplit(response.url).path == "/aweme/v1/web/aweme/detail/" and response.status == 200):
+                        try:
+                            body = await response.json()
+                            if body and "aweme_detail" in body:
+                                video_data = body
+                                print(f"Captured API response!", file=sys.stderr)
+                        except:
+                            pass
 
-        # 等待 API 响应（最多等 15 秒）
-        for _ in range(30):
-            if video_data:
-                break
-            await asyncio.sleep(0.5)
+                page.on("response", handle_response)
 
-        await browser.close()
+                # 访问抖音页面
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                resolved_url = page.url  # 获取重定向后的真实 URL
+
+                # 等待 API 响应（最多等 15 秒）
+                for _ in range(30):
+                    if video_data:
+                        break
+                    await asyncio.sleep(0.5)
+
+            finally:
+                await browser.close()
 
     return video_data, resolved_url
 

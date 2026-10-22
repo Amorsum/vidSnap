@@ -4,7 +4,7 @@
 
 独立从 0 到 1 构建的 AI 视频理解应用，打通「链接解析 → 音视频下载 → 三级降级转写 → 关键帧视觉理解 → LLM 结构化总结 → Agentic RAG 追问」全链路，支持 YouTube / 抖音双平台。
 
-> **优化进展（2026-10-21）**：[完整优化方案](docs/OPTIMIZATION_PLAN.md) 已推进 M0 两批实现：统一接口保护与严格输入；新增匿名会话、分析归属、独立媒体/帧目录及删除回写防护，并修复缓存画面证据丢失和图片索引错配。完整 M0 仍缺少重定向出站限制、Whisper 在途恢复等。当前仍依赖个人电脑在线；云端转写时间戳为估算，主总结的 Claude 流式切换尚不完整。
+> **优化进展（2026-10-21）**：[完整优化方案](docs/OPTIMIZATION_PLAN.md) 已推进 M0 三批实现：统一接口保护、会话与分析隔离、独立产物目录、缓存证据及帧索引修复；第三批增加短链逐跳校验和媒体出站域名/DNS/固定 IP 连接边界，见 [媒体网络说明](docs/MEDIA_NETWORK.md)。M0 仍待 Whisper 在途恢复及真实部署网络冒烟。当前仍依赖个人电脑在线；云端转写时间戳为估算，主总结的 Claude 流式切换尚不完整。
 
 ## 演示
 
@@ -96,6 +96,7 @@ flowchart TD
 - **每 IP 滑动窗口限流**：`/api/process` 10 次/10 分钟，`/api/followup` 30 次/10 分钟，防刷爆 API Key
 - **代理 IP 读取**：优先读取 `cf-connecting-ip`；只有源站入口受控且代理覆写头时才可信
 - **会话隔离**：HttpOnly 匿名会话绑定分析 ID；结果、字幕、对话、帧图和删除均校验归属，写接口增加来源与 JSON 内容类型校验
+- **媒体出站校验**：短链逐跳验证；yt-dlp、浏览器与直链下载限制平台/CDN 域名和公网 DNS，连接固定已验证 IP；FFmpeg 仅处理本地输入。应用边界不替代系统级出站策略
 - **临时文件清理**：主处理使用独立分析目录；成功清媒体、异常/删除清本分析，帧有独立到期清理，不按平台 ID 前缀删除共享文件。进程崩溃后的扫尾仍依赖后续分析触发
 
 ## 测试
@@ -132,7 +133,9 @@ npm install
 npm run dev
 ```
 
-外部依赖：yt-dlp（PATH 中或项目根目录）、FFmpeg、Python 3.12+（本地 Whisper 降级用，`pip install faster-whisper`）。
+外部依赖：yt-dlp（PATH 中）、FFmpeg、Python 3.12+（媒体网络边界及抖音解析需要；本地 Whisper 降级另需 `pip install faster-whisper`）。
+
+媒体出站默认直连，不自动使用系统/环境代理或 yt-dlp 本地配置。需要代理时在 `.env.local` 配置 `MEDIA_UPSTREAM_PROXY=http://127.0.0.1:<HTTP或mixed端口>`，并保证 DNS 返回真实公网地址；迁移限制及完整规则见 [媒体网络说明](docs/MEDIA_NETWORK.md)。
 
 ## 开发与验证
 

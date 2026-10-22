@@ -1,16 +1,12 @@
-import { execFile } from "child_process";
-import { promisify } from "util";
 import os from "os";
 import path from "path";
 import fs from "fs/promises";
 import { existsSync } from "fs";
 import { detectPlatform, normalizeVideoUrl } from "./url-utils";
 import { withMediaWorkspace } from "./media-workspace";
-
-const execFileAsync = promisify(execFile);
+import { runYtDlp } from "./media-network";
 
 const TEMP_DIR = path.join(os.tmpdir(), "vidsnap");
-const YT_DLP_PATH = "yt-dlp";
 const COOKIES_FILE = path.join(process.cwd(), "cookies.txt");
 // 伪装浏览器 UA，降低 YouTube 反爬对 yt-dlp 的识别概率
 const BROWSER_UA =
@@ -56,7 +52,7 @@ let jsRuntimesSupported: boolean | null = null;
 async function supportsJsRuntimes(): Promise<boolean> {
   if (jsRuntimesSupported !== null) return jsRuntimesSupported;
   try {
-    const { stdout } = await execFileAsync(YT_DLP_PATH, ["--version"]);
+    const { stdout } = await runYtDlp(["--version"], 10000);
     const [major, minor = 0] = stdout.trim().split(".").map(Number);
     jsRuntimesSupported = major > 2025 || (major === 2025 && minor >= 2);
   } catch {
@@ -89,7 +85,7 @@ export async function extractVideoInfo(url: string): Promise<VideoInfo> {
     ...getCookieArgs(),
     url,
   ];
-  const { stdout } = await execFileAsync(YT_DLP_PATH, args);
+  const { stdout } = await runYtDlp(args);
 
   const data = JSON.parse(stdout);
   return {
@@ -116,7 +112,7 @@ export async function downloadAudio(url: string, preInfo?: VideoInfo, directory 
     const info = preInfo ?? (await extractVideoInfo(url));
     const outputTemplate = path.join(directory, `${info.id}.%(ext)s`);
 
-    await execFileAsync(YT_DLP_PATH, [
+    await runYtDlp([
       "-f", "bestaudio[ext=m4a]/bestaudio",
       "--output", outputTemplate,
       "--no-playlist",
@@ -147,14 +143,14 @@ export async function downloadLowResVideo(url: string, preInfo?: VideoInfo, dire
   const info = preInfo ?? (await extractVideoInfo(url));
   const outputTemplate = path.join(directory, `${info.id}-video.%(ext)s`);
 
-  await execFileAsync(YT_DLP_PATH, [
+  await runYtDlp([
     "-f", "best[height<=240]/bestvideo[height<=240]/best[height<=144]",
     "--output", outputTemplate,
     "--no-playlist",
     ...(await getCommonYtDlpArgs()),
     ...getCookieArgs(),
     url,
-  ], { timeout: 120000 });
+  ], 120000);
 
   // yt-dlp 实际扩展名可能为 mp4/webm/mkv，按前缀探测实际文件
   const files = await fs.readdir(directory);
@@ -189,7 +185,7 @@ export async function tryDownloadSubtitles(url: string, preInfo?: VideoInfo, dir
   for (const strategy of subtitleStrategies) {
     assertActive?.();
     try {
-      await execFileAsync(YT_DLP_PATH, [
+      await runYtDlp([
         "--skip-download",
         ...strategy,
         "--convert-subs", "srt",
@@ -198,7 +194,7 @@ export async function tryDownloadSubtitles(url: string, preInfo?: VideoInfo, dir
         ...(await getCommonYtDlpArgs()),
         ...getCookieArgs(),
         url,
-      ], { timeout: 30000 });
+      ], 30000);
       assertActive?.();
 
       // 检查是否下载了字幕文件
