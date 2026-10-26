@@ -162,7 +162,7 @@ async def main():
                 await route.fulfill(status=200, content_type="text/event-stream", body='data: {"type":"stream_start"}\n\ndata: {"type":"stream_end"}\n\n')
             await page.route("**/api/process", eof_process)
             await page.get_by_role("button", name="重试此链接", exact=True).click()
-            await page.get_by_text("连接中断，尚未取得完整结果，请重试", exact=True).wait_for()
+            await page.get_by_text("连接中断，尚未取得完整结果", exact=False).wait_for()
             assert await page.get_by_label("我的笔记", exact=True).input_value()
             await page.unroute("**/api/process", eof_process)
             CHECKS.append("静默 EOF 明确失败且保留旧笔记")

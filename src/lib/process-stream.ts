@@ -2,7 +2,11 @@ import { sseLines } from "./sse";
 import { isAnalysisResult } from "./learning";
 import type { AnalysisResult } from "./learning-types";
 
-export interface ProcessProgress { step: string; percent?: number }
+export interface ProcessProgress { step: string; percent?: number; analysisId?: string }
+
+export class ProcessStreamInterruptedError extends Error {
+  constructor() { super("连接中断，尚未取得完整结果，请恢复连接或重试"); this.name = "ProcessStreamInterruptedError"; }
+}
 
 /** 完成依赖 result，不把 stream_end、done 或静默 EOF 当作成功。 */
 export async function readProcessResult(response: Response, onProgress: (event: ProcessProgress) => void, onGenerating: () => void): Promise<AnalysisResult> {
@@ -22,7 +26,10 @@ export async function readProcessResult(response: Response, onProgress: (event: 
       if (event.type === "progress" && typeof event.step === "string") onProgress(event);
       if (event.type === "stream_start" || event.type === "stream") onGenerating();
     }
-    throw new Error("连接中断，尚未取得完整结果，请重试");
+    throw new ProcessStreamInterruptedError();
+  } catch (error) {
+    if (error instanceof TypeError) throw new ProcessStreamInterruptedError();
+    throw error;
   } finally { await reader.cancel().catch(() => {}); }
 }
 

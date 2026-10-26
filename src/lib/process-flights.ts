@@ -16,6 +16,13 @@ export class ProcessFlights {
 
   constructor(private readonly maxEntries = 128, private readonly maxWaiters = 16, private readonly waitMs = 15 * 60 * 1000) {}
 
+  /** 恢复只加入现有执行；找不到时绝不预留新的执行权。 */
+  join(ownerId: string, video: VideoUrl, analysisId?: string) {
+    const entry = this.entries.get(JSON.stringify([ownerId, video.platform, video.url]));
+    return entry && (!analysisId || entry.progress?.analysisId === analysisId)
+      ? { leader: false as const, wait: (progress: Waiter["progress"], signal: AbortSignal) => this.wait(entry, progress, signal) } : null;
+  }
+
   acquire(ownerId: string, video: VideoUrl) {
     const key = JSON.stringify([ownerId, video.platform, video.url]);
     const existing = this.entries.get(key);

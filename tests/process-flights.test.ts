@@ -10,6 +10,22 @@ const ready = { analysisId: "analysis-a", videoId: "dQw4w9WgXcQ" };
 const signal = () => new AbortController().signal;
 const ignore = () => {};
 
+test("只恢复已有同会话执行，未命中不会占用容量，结束后不能重新建单", async () => {
+  const flights = new ProcessFlights(1);
+  assert.equal(flights.join("a", video), null);
+  const leader = flights.acquire("a", video);
+  assert.ok(leader.leader);
+  assert.equal(flights.join("b", video), null);
+  leader.publish({ type: "progress", step: "analyzing", percent: 80, analysisId: "current" });
+  assert.equal(flights.join("a", video, "previous"), null);
+  assert.ok(flights.join("a", video, "current"));
+  const joined = flights.join("a", video)!;
+  const pending = joined.wait(ignore, signal());
+  leader.finish(ready);
+  assert.deepEqual(await pending, ready);
+  assert.equal(flights.join("a", video), null);
+});
+
 test("规范链接合并仅在同会话同平台，容量满时仍允许加入已有执行", async () => {
   const flights = new ProcessFlights(1);
   const leader = flights.acquire("owner-a", video);

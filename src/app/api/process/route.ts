@@ -17,7 +17,7 @@ import { readJsonObject, isValidVideoId, RequestValidationError, ServiceCapacity
 import { extractKeyframes } from "@/lib/keyframes";
 import { ensureSession, getSessionId } from "@/lib/session";
 import {
-  ARTIFACT_TTL_MS, createAnalysis, findReusableAnalysis, getOwnedAnalysis, isAnalysisId,
+  ARTIFACT_TTL_MS, createAnalysis, findReusableAnalysis, getOwnedAnalysis, getOwnedAnalysisById, isAnalysisId,
   assertAnalysisActive, completeAnalysis, revokeAnalysis, type Analysis,
 } from "@/lib/analysis-store";
 import { analysisDirectory, ensureAnalysisDirectories, cleanupAnalysisArtifacts, scheduleAnalysisCleanup, sweepAnalysisArtifacts } from "@/lib/analysis-artifacts";
@@ -317,7 +317,10 @@ export async function POST(request: NextRequest) {
   const denied = guardApiRequest(request, "process");
   if (denied) return denied;
   try {
-    const { url: inputUrl } = await readJsonObject(request);
+    const { url: inputUrl, resumeOnly, analysisId: resumeAnalysisId } = await readJsonObject(request);
+    if ((resumeOnly !== undefined && typeof resumeOnly !== "boolean") || (resumeAnalysisId !== undefined && !isAnalysisId(resumeAnalysisId))) {
+      return NextResponse.json({ success: false, error: "恢复参数格式错误" }, { status: 400 });
+    }
 
     if (!inputUrl) {
       return NextResponse.json({ success: false, error: "请提供视频链接" }, { status: 400 });
@@ -329,7 +332,18 @@ export async function POST(request: NextRequest) {
     }
 
     const url = videoUrl.url;
-    const session = ensureSession(request);
+    const ownerId = getSessionId(request);
+    const unavailable = () => NextResponse.json({ success: false, error: "未找到可恢复的分析，任务可能已结束、过期或服务器已重启。请重新分析。" }, { status: 404, headers: { "Cache-Control": "private, no-store" } });
+    if (resumeOnly && !ownerId) return unavailable();
+    const session = ownerId ? { id: ownerId } : ensureSession(request);
+    const joinedFlight = resumeOnly ? processFlights.join(session.id, videoUrl, resumeAnalysisId) : null;
+    const resumeAnalysis = resumeOnly && !joinedFlight
+      ? resumeAnalysisId ? getOwnedAnalysisById(session.id, resumeAnalysisId)
+        : videoUrl.videoId ? findReusableAnalysis(session.id, videoUrl.platform, videoUrl.videoId) : null
+      : null;
+    const resumeCache = resumeAnalysis?.platform === videoUrl.platform && (!videoUrl.videoId || resumeAnalysis.videoId === videoUrl.videoId)
+      && resumeAnalysis.status === "completed" ? getCachedResult(resumeAnalysis.id) : null;
+    if (resumeOnly && !joinedFlight && (!resumeCache || !resumeAnalysis || (resumeAnalysis.contentExpiresAt ?? 0) <= Date.now())) return unavailable();
 
     const encoder = new TextEncoder();
     const connection = new AbortController();
@@ -396,9 +410,9 @@ export async function POST(request: NextRequest) {
           // 短链接无 ID 时先解析，仍沿用原有解析后查询路径。
           const canonicalId = videoUrl.videoId;
           // 在第一次平台调用前预留执行权；重复连接只等完成结果，不重复消费模型流。
-          flight = processFlights.acquire(session.id, videoUrl);
+          flight = resumeOnly ? joinedFlight ?? undefined : processFlights.acquire(session.id, videoUrl);
           let cacheState: ReturnType<typeof lookupCache> | undefined;
-          if (!flight.leader) {
+          if (flight && !flight.leader) {
             shared = true;
             const joined = flight;
             const ready = await timer.measure("inflight_wait", async () => {
@@ -412,9 +426,13 @@ export async function POST(request: NextRequest) {
               if (!cached || !reusable || (reusable.contentExpiresAt ?? 0) <= Date.now()) throw new Error("共享结果已失效，请重新处理视频");
               return { cached, reusable };
             });
+          } else if (resumeOnly && resumeCache && resumeAnalysis) {
+            cacheState = { cached: resumeCache, reusable: resumeAnalysis };
           } else if (canonicalId) {
             cacheState = await timer.measure("cache_lookup", () => lookupCache(canonicalId));
           }
+          // 恢复路径不允许回落到元信息、下载、转写或模型调用。
+          if (resumeOnly && !cacheState?.cached) throw new Error("共享结果已失效，请重新处理视频");
           info = cacheState?.cached?.video ?? await timer.measure("metadata", async () => {
             const extracted = await processor.getInfo(url);
             if (!isValidVideoId(extracted.id)) throw new Error("视频元信息中的 ID 无效");

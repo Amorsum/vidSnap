@@ -14,7 +14,8 @@ import type { ExcerptDraft, StudyNote, StudyTurn } from "@/lib/learning-types";
 import { appendExcerpt, excerptKey, reviewAnswersQuestion } from "@/lib/study-tools";
 import { durableNote, exportMarkdown, formatTime, sourceUrl, transcriptionLabel, visionLabel } from "@/lib/learning";
 import { deleteNote, listNotes, saveNote } from "@/lib/notebook";
-import { readProcessResult, retryDeadline } from "@/lib/process-stream";
+import { ProcessStreamInterruptedError, readProcessResult, retryDeadline } from "@/lib/process-stream";
+import { readPendingProcess, writePendingProcess, type PendingProcess } from "@/lib/process-recovery";
 
 interface Props { accessCode: string; onUnauthorized: () => void; children: ReactNode }
 type Tab = "summary" | "transcript" | "chat";
@@ -22,6 +23,8 @@ const tabs: { id: Tab; label: string }[] = [{ id: "summary", label: "总结" }, 
 
 export default function LearningWorkspace({ accessCode, onUnauthorized, children }: Props) {
   const [notes, setNotes] = useState<StudyNote[]>([]);
+  const savedNotes = useRef<StudyNote[]>([]);
+  const [notebookReady, setNotebookReady] = useState(false);
   const [note, setNote] = useState<StudyNote | null>(null);
   const current = useRef<StudyNote | null>(null);
   const [storage, setStorage] = useState("正在打开本地笔记库…");
@@ -38,6 +41,9 @@ export default function LearningWorkspace({ accessCode, onUnauthorized, children
   const [now, setNow] = useState(0);
   const [error, setError] = useState("");
   const [lastUrl, setLastUrl] = useState("");
+  const [pendingProcess, setPendingProcess] = useState<PendingProcess | null>(null);
+  const [recoveryStorageFailed, setRecoveryStorageFailed] = useState(false);
+  const restoreChecked = useRef(false);
   const [processRetryAt, setProcessRetryAt] = useState(0);
   const [askRetryAt, setAskRetryAt] = useState(0);
   const [tab, setTab] = useState<Tab>("summary");
@@ -63,7 +69,8 @@ export default function LearningWorkspace({ accessCode, onUnauthorized, children
 
   const persist = useCallback((next: StudyNote) => {
     const snapshot = durableNote(next);
-    setNotes(items => [snapshot, ...items.filter(item => item.id !== next.id)]);
+    savedNotes.current = [snapshot, ...savedNotes.current.filter(item => item.id !== next.id)];
+    setNotes(savedNotes.current);
     const version = ++writeVersion.current;
     setStorage("正在保存到当前浏览器…");
     writeQueue.current = writeQueue.current.then(async () => {
@@ -79,14 +86,19 @@ export default function LearningWorkspace({ accessCode, onUnauthorized, children
     let disposed = false;
     void listNotes().then(items => {
       if (disposed) return;
-      setNotes(items);
-      setStorage("笔记仅保存在当前浏览器，清除网站数据后会丢失");
-      if (!current.current && !busy.current && items[0]) {
+      // 读取期间可能已产生内存修改，不能用较早的数据库快照覆盖它。
+      const merged = new Map(items.map(item => [item.id, item]));
+      for (const saved of savedNotes.current) merged.set(saved.id, saved);
+      savedNotes.current = [...merged.values()].sort((a, b) => b.lastViewedAt - a.lastViewedAt);
+      setNotes(savedNotes.current);
+      if (writeVersion.current === 0) setStorage("笔记仅保存在当前浏览器，清除网站数据后会丢失");
+      if (!current.current && items[0]) {
         const restored = { ...items[0], lastViewedAt: Date.now() };
         showNote(restored);
         persist(restored);
       }
-    }).catch(() => { if (!disposed) { setStorage("无法打开本地笔记库，仍可分析和导出。原有数据未删除。"); setStorageFailed(true); } });
+    }).catch(() => { if (!disposed) { setStorage("无法打开本地笔记库，仍可分析和导出。原有数据未删除。"); setStorageFailed(true); } })
+      .finally(() => { if (!disposed) setNotebookReady(true); });
     return () => { disposed = true; };
   }, [persist, showNote]);
 
@@ -131,38 +143,70 @@ export default function LearningWorkspace({ accessCode, onUnauthorized, children
     persist(next);
   }, [persist, showNote]);
 
-  const submit = useCallback(async (url: string) => {
+  const savePending = useCallback((pending: PendingProcess | null) => {
+    setPendingProcess(pending);
+    try { setRecoveryStorageFailed(!writePendingProcess(window.sessionStorage, pending)); }
+    catch { setRecoveryStorageFailed(true); }
+  }, []);
+
+  const submit = useCallback(async (url: string, recovery?: PendingProcess) => {
     if (busy.current || asking.current || processRetryAt > Date.now()) return;
     busy.current = true;
     const controller = new AbortController();
     processController.current = controller;
     setLoading(true); setError(""); setLastUrl(url); setStep("downloading"); setProgress(0); setGenerating(false);
-    const start = Date.now(); setStartedAt(start); setNow(start);
+    const start = recovery?.startedAt ?? Date.now(); setStartedAt(start); setNow(Date.now());
+    let pending: PendingProcess = recovery ?? { version: 1, url, startedAt: start };
+    savePending(pending);
     try {
-      const response = await fetch("/api/process", { method: "POST", headers: { "Content-Type": "application/json", "X-Access-Code": accessCode }, body: JSON.stringify({ url, action: "summarize" }), signal: controller.signal });
+      const response = await fetch("/api/process", { method: "POST", headers: { "Content-Type": "application/json", "X-Access-Code": accessCode }, body: JSON.stringify({ url, action: "summarize", ...(recovery ? { resumeOnly: true, analysisId: recovery.analysisId } : {}) }), signal: controller.signal });
       if (response.status === 401) { onUnauthorized(); return; }
       if (!response.ok) {
         if (response.status === 429) setProcessRetryAt(retryDeadline(response.headers.get("Retry-After")));
+        // 恢复限流/暂时故障仍保留线索；普通请求被拒绝时没有新任务。
+        if (!recovery || response.status === 400 || response.status === 404) savePending(null);
         const data = await response.json();
-        throw new Error(data.error || (response.status === 400 ? "链接无效，请检查后重试" : "处理请求失败，请重试"));
+        setError(data.error || (response.status === 400 ? "链接无效，请检查后重试" : "处理请求失败，请重试"));
+        return;
       }
       const analysis = await readProcessResult(response, event => {
+        if (typeof event.analysisId === "string" && pending.analysisId !== event.analysisId) {
+          pending = { ...pending, analysisId: event.analysisId }; savePending(pending);
+        }
         if (["downloading", "transcribing", "vision", "analyzing"].includes(event.step)) setStep(event.step as ProgressStep);
         if (typeof event.percent === "number" && Number.isFinite(event.percent)) setProgress(p => Math.max(p, Math.min(95, event.percent!)));
       }, () => setGenerating(true));
       const old = current.current;
       const time = Date.now();
       // 有效缓存属于同一分析；复用本地笔记，过期后新分析另建笔记保留旧问答。
-      const existing = old?.analysis.analysisId === analysis.analysisId ? old : notes.find(saved => saved.analysis.analysisId === analysis.analysisId);
+      const existing = old?.analysis.analysisId === analysis.analysisId ? old : savedNotes.current.find(saved => saved.analysis.analysisId === analysis.analysisId);
       const next: StudyNote = existing ? { ...existing, analysis, updatedAt: time, lastViewedAt: time } : {
         id: crypto.randomUUID(), version: 1, analysis, turns: [], personalNote: "", createdAt: time, updatedAt: time, lastViewedAt: time,
       };
       showNote(next); persist(next); setAvailability("available"); setTab("summary"); setSelection(null); setStudyMessage("");
       setStep("done"); setProgress(100);
+      savePending(null);
     } catch (failure) {
-      if (!controller.signal.aborted) setError(failure instanceof TypeError ? "网络请求失败，请检查网络连接后重试" : failure instanceof Error ? failure.message : "处理失败，请重试");
+      if (!controller.signal.aborted) {
+        if (!(failure instanceof TypeError) && !(failure instanceof ProcessStreamInterruptedError)) savePending(null);
+        setError(failure instanceof TypeError ? "网络请求失败，请检查网络连接后恢复" : failure instanceof Error ? failure.message : "处理失败，请重试");
+      }
     } finally { busy.current = false; setLoading(false); setGenerating(false); }
-  }, [accessCode, notes, onUnauthorized, persist, processRetryAt, showNote]);
+  }, [accessCode, onUnauthorized, persist, processRetryAt, savePending, showNote]);
+
+  useEffect(() => {
+    if (!notebookReady) return;
+    // 延后至挂载完成，避免开发模式 Effect 重放在首个连接建立后立即取消它。
+    const timer = window.setTimeout(() => {
+      if (restoreChecked.current) return;
+      restoreChecked.current = true;
+      try {
+        const pending = readPendingProcess(window.sessionStorage);
+        if (pending) void submit(pending.url, pending);
+      } catch { setRecoveryStorageFailed(true); }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [notebookReady, submit]);
 
   const canAsk = !!note && availability === "available" && note.analysis.expiresAt > now && !loading && !followUpLoading;
   const ask = useCallback(async (question: string, purpose: StudyTurn["purpose"] = "question") => {
@@ -223,7 +267,8 @@ export default function LearningWorkspace({ accessCode, onUnauthorized, children
     if (busy.current || asking.current) return;
     writeQueue.current = writeQueue.current.then(async () => {
       await deleteNote(id);
-      setNotes(items => items.filter(n => n.id !== id));
+      savedNotes.current = savedNotes.current.filter(n => n.id !== id);
+      setNotes(savedNotes.current);
       if (current.current?.id === id) showNote(null);
       setStorage("本地笔记已删除；服务器临时数据仍按原期限清理。");
     }).catch(() => { setStorage("删除失败，原笔记已保留，请重试。"); setStorageFailed(true); });
@@ -249,7 +294,16 @@ export default function LearningWorkspace({ accessCode, onUnauthorized, children
     <div className="w-full max-w-7xl text-sm text-muted"><span role="status">{storage}</span>{storageFailed && note && <button className="study-button ml-2" onClick={() => persist(note)}>重试保存</button>}</div>
     <NotebookLibrary notes={notes} activeId={note?.id} disabled={loading || followUpLoading} onOpen={open} onDelete={remove} />
 
-    {(loading || error) && <ProcessingStatus isLoading={loading} step={step} progress={progress} elapsed={Math.max(0, Math.floor((now - startedAt) / 1000))} errorMessage={error || undefined} retrySeconds={processWait} onRetry={lastUrl ? () => void submit(lastUrl) : undefined} />}
+      {pendingProcess && <section className="study-panel w-full max-w-3xl" aria-label="分析连接恢复">
+        <p className="text-sm leading-6" role="status">{loading ? "刷新页面后会尝试找回这次分析。恢复连接只读取已有任务，不会启动新的分析。" : "这次分析尚未收到完整结果，可以尝试恢复连接。"}</p>
+        {!loading && <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" className="study-button" disabled={processWait > 0 || followUpLoading} onClick={() => void submit(pendingProcess.url, pendingProcess)}>{processWait > 0 ? `${processWait} 秒后可恢复` : "恢复分析连接"}</button>
+          <button type="button" className="study-button" onClick={() => savePending(null)}>不再恢复这次分析</button>
+        </div>}
+        <p className="mt-2 text-sm text-muted">仅限当前浏览器标签页和仍在运行的服务器；服务器重启后需重新分析。停止恢复不会取消服务器任务。</p>
+      </section>}
+      {recoveryStorageFailed && <p role="status" className="text-sm text-muted">无法保存恢复线索，请保持此页面打开；当前结果仍可阅读和导出。</p>}
+      {(loading || error) && <ProcessingStatus isLoading={loading} step={step} progress={progress} elapsed={Math.max(0, Math.floor((now - startedAt) / 1000))} errorMessage={error || undefined} retrySeconds={processWait} onRetry={!pendingProcess && lastUrl ? () => void submit(lastUrl) : undefined} />}
     {loading && generating && <section className="study-panel w-full max-w-3xl" role="status" aria-label="正在生成总结">
       <h2 className="text-base font-semibold">正在整理可阅读的总结</h2><p className="mt-2 text-sm text-muted">内容完整后会自动展示。你已有的笔记仍保留在下方。</p>
       <div className="mt-5 space-y-3" aria-hidden="true">{["w-2/3", "w-full", "w-4/5"].map(width => <div key={width} className={`h-4 rounded bg-surface-soft motion-safe:animate-pulse ${width}`} />)}</div>

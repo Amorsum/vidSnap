@@ -166,6 +166,53 @@ function parseEvents(text: string) {
   return text.split("\n\n").filter((line) => line.startsWith("data: ")).map((line) => JSON.parse(line.slice(6)));
 }
 
+test("恢复请求只加入现有执行或读缓存，跨会话/过期/缺失均不调用上游", { timeout: 15000 }, async () => {
+  const cookie = cookieFor(await verify.POST(request({ code: "isolation-test-only" })));
+  const otherCookie = cookieFor(await verify.POST(request({ code: "isolation-test-only" })));
+  const before = mockState.counts();
+  const url = `https://youtu.be/${videoId}`;
+  const noSession = await main.POST(request({ url, resumeOnly: true }));
+  assert.equal(noSession.status, 404);
+  assert.equal(noSession.headers.get("set-cookie"), null);
+  assert.equal((await main.POST(request({ url, resumeOnly: true }, cookie))).status, 404);
+  assert.equal((await main.POST(request({ url, resumeOnly: "true" }, cookie))).status, 400);
+  const pause = mockState.pauseNext("summary");
+  try {
+    const controller = new AbortController();
+    const response = await main.POST(request({ url }, cookie, "POST", {}, controller.signal));
+    const reading = response.text();
+    await pause.started;
+    assert.equal((await main.POST(request({ url, resumeOnly: true }, otherCookie))).status, 404);
+    const resumed = await main.POST(request({ url, resumeOnly: true }, cookie));
+    const resumedRead = resumed.text();
+    controller.abort();
+    await reading;
+    pause.release();
+    const data: ProcessData = parseEvents(await resumedRead).find(event => event.type === "result").data;
+    created.add(data.analysisId);
+    assert.equal(data.shared, true);
+    const cached = await main.POST(request({ url, resumeOnly: true, analysisId: data.analysisId }, cookie));
+    assert.equal(parseEvents(await cached.text()).find(event => event.type === "result").data.analysisId, data.analysisId);
+    const owned = analyses.getOwnedAnalysis(sessions.getSessionId(request({}, cookie)), videoId, data.analysisId)!;
+    const expiry = owned.contentExpiresAt;
+    owned.contentExpiresAt = Date.now() - 1;
+    assert.equal((await main.POST(request({ url, resumeOnly: true, analysisId: data.analysisId }, cookie))).status, 404);
+    owned.contentExpiresAt = expiry;
+    const short = analyses.createAnalysis(owned.ownerId, "douyin", "1234");
+    created.add(short.id);
+    const shortExpiry = analyses.completeAnalysis(short);
+    const originalCache = cache.getCachedResult(data.analysisId)!;
+    cache.cacheResult(short.id, { ...originalCache, video: { ...originalCache.video, id: "1234" }, expiresAt: shortExpiry, frames: [] });
+    const shortResponse = await main.POST(request({ url: "https://v.douyin.com/short/", resumeOnly: true, analysisId: short.id }, cookie));
+    assert.equal(parseEvents(await shortResponse.text()).find(event => event.type === "result").data.analysisId, short.id);
+    assert.equal((await main.POST(request({ url, resumeOnly: true, analysisId: data.analysisId }, otherCookie))).status, 404);
+    assert.equal((await main.POST(request({ url: "https://youtu.be/abcdefghijk", resumeOnly: true, analysisId: data.analysisId }, cookie))).status, 404);
+    assert.equal((await main.DELETE(request({ videoId, analysisId: data.analysisId }, cookie, "DELETE"))).status, 200);
+    assert.equal((await main.POST(request({ url, resumeOnly: true, analysisId: data.analysisId }, cookie))).status, 404);
+    for (const key of ["metadata", "summary"] as const) assert.equal(mockState.counts()[key], before[key] + 1);
+  } finally { pause.release(); }
+});
+
 for (const disconnect of ["abort", "cancel"]) {
   test(`等待者 ${disconnect} 只脱离连接，不影响执行者或其他等待者`, { timeout: 15000 }, async () => {
     const cookie = cookieFor(await verify.POST(request({ code: "isolation-test-only" })));

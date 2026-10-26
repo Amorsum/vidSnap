@@ -4,6 +4,25 @@ import { durableNote, exportMarkdown, formatTime, isAnalysisResult, isStudyNote,
 import { readProcessResult, retryDeadline } from "../src/lib/process-stream";
 import type { StudyNote } from "../src/lib/learning-types";
 import { appendExcerpt, REVIEW_QUESTION, reviewAnswersQuestion, termQuestion } from "../src/lib/study-tools";
+import { PENDING_PROCESS_KEY, readPendingProcess, writePendingProcess } from "../src/lib/process-recovery";
+
+test("恢复线索只接受有效平台/格式/时间，不保存凭据且存储失败可降级", () => {
+  const data = new Map<string, string>();
+  const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value); }, removeItem: (key: string) => { data.delete(key); } };
+  const pending = { version: 1 as const, url: "https://youtu.be/dQw4w9WgXcQ", startedAt: 1000 };
+  assert.ok(writePendingProcess(storage, pending));
+  assert.equal(readPendingProcess(storage, 2000)?.url, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+  assert.equal(readPendingProcess(storage, 8_000_000), null);
+  assert.equal(data.size, 0);
+  for (const changed of [{ url: "https://evil.example/video" }, { startedAt: 3000 }, { analysisId: "not-id" }, { version: 2 }]) {
+    data.set(PENDING_PROCESS_KEY, JSON.stringify({ ...pending, ...changed }));
+    assert.equal(readPendingProcess(storage, 2000), null);
+    assert.equal(data.size, 0);
+  }
+  const blocked = { getItem: () => { throw new Error("disabled"); }, removeItem: () => { throw new Error("disabled"); }, setItem: () => { throw new Error("disabled"); } };
+  assert.equal(readPendingProcess(blocked), null);
+  assert.equal(writePendingProcess(blocked, pending), false);
+});
 
 test("摘录按来源和时间去重，拒绝无效范围且不修改旧数组", () => {
   const draft = { kind: "transcript" as const, text: " 原文 ", start: 2, end: 5 };
@@ -103,6 +122,8 @@ test("SSE 分片兼容 UTF-8，只有合法 result 才完成，生成中的 JSON
 });
 
 test("SSE done/stream_end/静默 EOF 不当作完成；错误和无效结果均明确失败", async () => {
+  const interrupted = new Response(new ReadableStream({ start(controller) { controller.error(new TypeError("network failure")); } }));
+  await assert.rejects(readProcessResult(interrupted, () => {}, () => {}), /连接中断/);
   for (const events of [[], [{ type: "progress", step: "done", percent: 100 }], [{ type: "stream_end" }]]) {
     await assert.rejects(readProcessResult(stream(events), () => {}, () => {}), /连接中断/);
   }

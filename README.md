@@ -4,6 +4,8 @@
 
 独立从 0 到 1 构建的 AI 视频理解应用，打通「链接解析 → 音视频下载 → 三级降级转写 → 关键帧视觉理解 → LLM 结构化总结 → Agentic RAG 追问」全链路，支持 YouTube / 抖音双平台。
 
+开发分支：按 2026-10-26 的最新约定，后续开发、提交和推送统一使用 `main`；此前 `demo` 的开发历史已快进整合到 `main`。
+
 > **优化进展（2026-10-26）**：[完整优化方案](docs/OPTIMIZATION_PLAN.md) 的 M0 前六批、M1 计时/缓存及字幕/媒体路径两批已推送 `demo`（`d37e846`）。本次交付合并 [同会话在途合并](docs/INFLIGHT_PROCESSING.md)、[视觉阶段共享预算](docs/VISION_BUDGET.md) 与 [单视频学习闭环](docs/LEARNING_WORKSPACE.md)：重复链接复用执行，视觉阶段默认共享 30 秒预算，结果支持原文核对、本地笔记和 Markdown 导出。248 项自动回归、16 组学习浏览器检查及会话隔离验收通过，详见 [报告](docs/test-reports/TEST-20261026-LEARNING.md)。
 >
 > 既有真实短样本的文字路由、字幕与音频证据见 [流水线计时](docs/PIPELINE_TIMING.md) 和 [字幕下载](docs/YOUTUBE_DOWNLOADS.md)，不能外推总体延迟或真实视觉覆盖率。此次 HTTP/浏览器验收使用明确的媒体与模型替身；真实抖音登录、无字幕 ASR、完整视觉及部署出站验收仍待补充，M0/M1 尚未整体验收。当前依赖个人电脑在线，云端时间戳为估算，主总结的 Claude 流式切换尚不完整。
@@ -13,6 +15,8 @@
 以下为早期演示截图；新工作台的交互与验证范围见 [学习闭环说明](docs/LEARNING_WORKSPACE.md)。
 
 学习辅助界面（隔离测试数据）：[桌面截图](docs/screenshots/study-desktop.png) · [手机截图](docs/screenshots/study-mobile.png)。
+
+连接恢复界面（隔离测试数据）：[手机截图](docs/screenshots/recovery-mobile.png)。
 
 | 首页 | 视频理解工作台 | 移动端 |
 |------|------|------|
@@ -25,6 +29,8 @@
 > 在线 Demo：<https://vidsnap.amorsum.top>（需访问码，本地运行 + Cloudflare 隧道，电脑在线时可用）
 
 ## 功能特性
+
+分析中刷新页面后会尝试找回已有任务；连接中断时提供“恢复分析连接”。恢复不会启动新的模型处理，服务器重启后需重新分析，详见 [恢复范围](docs/LEARNING_WORKSPACE.md#刷新与连接恢复)。本批 254 项自动测试、31 组隔离浏览器检查及静态/构建检查通过，见 [验证报告](docs/test-reports/TEST-20261026-RECOVERY.md)。学习辅助上一批已由 `8c3ce28` 推送 `demo`。
 
 学习辅助已加入工作台：术语解释、先出题再按需查看参考答案、字幕/总结/问答重点摘录。摘录随本地笔记保存和 Markdown 导出，兼容已有笔记；详见 [使用说明](docs/LEARNING_WORKSPACE.md) 与 [本轮验证](docs/test-reports/TEST-20261026-STUDY-TOOLS.md)。上一批学习闭环与处理稳定性已由 `45b88d3` 推送至 `demo`。
 

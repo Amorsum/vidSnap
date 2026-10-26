@@ -146,6 +146,9 @@ export function installMockUpstream() {
     if (body.stream) {
       counts.summary++;
       await checkpoint("summary");
+      // 仅测试替身使用，给浏览器留出刷新/断线的可控窗口。
+      const delay = Number(process.env.VIDSNAP_TEST_SUMMARY_DELAY_MS ?? 0);
+      if (Number.isFinite(delay) && delay > 0 && delay <= 10000) await new Promise(resolve => setTimeout(resolve, delay));
       if (failure === "summary") return Response.json({ error: "mock error" }, { status: 500 });
       const content = JSON.stringify({ overall: "隔离测试总结", segments: [{ start: 0, end: 10, title: "测试分段", points: [{ time: "00:01", text: "测试要点" }] }] });
       return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`, { headers: { "Content-Type": "text/event-stream" } });

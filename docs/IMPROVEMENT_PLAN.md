@@ -160,6 +160,13 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 ## 📋 执行进展日志
 
+### 2026-10-26：刷新与断线后找回分析
+
+- 学习辅助已由 `8c3ce28` 推送 `demo`，同步指纹；接续实现 sessionStorage 当前标签页恢复线索、刷新后尝试一次、EOF/网络中断手动恢复。
+- `POST /api/process` 的兼容可选 `resumeOnly` 严格查找原执行或有效缓存，保留归属/平台/视频/期限校验与限流，不创建新任务或重复调用上游。已知分析 ID 防止误接替代执行。
+- 旧笔记在恢复期间继续显示；成功后清除线索，不可恢复时提示重新分析。新增存储降级与手机/横屏反馈，说明见 [学习工作台](LEARNING_WORKSPACE.md)。
+- 自动与隔离浏览器验证见 [本轮报告](test-reports/TEST-20261026-RECOVERY.md)。本批仍为单进程恢复，数据库、Worker、事件回放及服务器重启恢复未实施；恢复功能与验证文档随本次提交交付。
+
 ### 2026-10-26：学习辅助与重点摘录
 
 - 上一批处理稳定性与学习闭环已提交并推送 `demo`：`45b88d3`，已同步本地 plan-state 指纹。
@@ -172,6 +179,7 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-10-26 | 恢复交付与主分支开发 | 实现刷新与断线恢复并完成 254 项自动测试、31 组隔离浏览器检查；按用户最新要求将 demo 历史快进整合到 main，后续统一在 main 开发提交。 | src/app/api/process/route.ts, src/components/LearningWorkspace.tsx, docs/LEARNING_WORKSPACE.md | ✅ 已完成，本次提交 |
 | 2026-10-26 | 学习闭环交付 | 按用户授权将学习工作台、依赖的在途合并与视觉预算整合为一次提交并推送 demo；核对 README、248 项回归和浏览器记录，保留无关协作配置。 | README.md, docs/LEARNING_WORKSPACE.md, docs/OPTIMIZATION_PLAN.md | ✅ 已实现验证，本次提交 |
 | 2026-10-26 | 学习闭环 | 实现等待/重试、原文搜索与引用、移动端追问、IndexedDB 本地笔记与 Markdown 导出；来源精度/视觉状态进入缓存，新增只读分析资格查询。248 项回归、16 组学习浏览器检查、既有会话隔离、lint/类型与隔离构建通过；真实平台验收仍待补。 | docs/LEARNING_WORKSPACE.md, docs/test-reports/TEST-20261026-LEARNING.md | ✅ 已实现并验证，未提交 |
 | 2026-10-26 | M1 第四批 | 视觉下载/抽帧/模型链共用默认 30 秒预算，取消 HTTP 等待、保留部分画面与已知 usage，超时继续文字总结；239 项回归通过，真实视觉/HTTP 验收待补。 | src/lib/vision-budget.ts, src/lib/vision.ts, docs/VISION_BUDGET.md | 🚧 已验证，待确认提交 |
