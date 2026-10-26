@@ -5,7 +5,7 @@ import Icon from "./Icon";
 
 export interface FrameInfo {
   time: number;
-  src: string;
+  src?: string;
   description: string;
 }
 
@@ -26,7 +26,7 @@ export default function KeyframeGallery({ frames, onJumpToTime }: KeyframeGaller
   const [hiddenIndexes, setHiddenIndexes] = useState<Set<number>>(new Set());
 
   if (!frames?.length) return null;
-  const visibleFrames = frames.map((frame, index) => ({ frame, index })).filter(({ index }) => !hiddenIndexes.has(index));
+  const visibleFrames = frames.map((frame, index) => ({ frame, index }));
   if (!visibleFrames.length) return null;
 
   return (
@@ -53,12 +53,12 @@ export default function KeyframeGallery({ frames, onJumpToTime }: KeyframeGaller
             <div className="relative aspect-video overflow-hidden bg-surface-soft">
               {/* Frame URLs are generated dynamically by the local signed frame endpoint. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              {frame.src && !hiddenIndexes.has(index) ? <img
                 src={frame.src}
                 alt={frame.description || `关键画面 ${displayIndex + 1}`}
                 onError={() => setHiddenIndexes((current) => new Set(current).add(index))}
                 className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-              />
+              /> : <p className="flex h-full items-center justify-center p-4 text-sm text-muted">画面已过期或未保存在本地，可查看下方文字依据</p>}
               <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/65 to-transparent" />
               <span className="absolute bottom-2 left-2 rounded-lg bg-black/45 px-2 py-1 font-mono text-[10px] font-semibold text-white backdrop-blur-md">
                 {formatTime(frame.time)}

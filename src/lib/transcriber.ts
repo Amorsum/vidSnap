@@ -1,4 +1,5 @@
 import fs from "fs/promises";
+import type { TranscriptionMetadata } from "./learning-types";
 import { getWhisperClient } from "./whisper-client";
 
 // ─── 类型定义 ───
@@ -14,6 +15,7 @@ export interface TranscriptResult {
   segments: TranscriptSegment[]; // 带时间戳的分段
   source: "builtin" | "whisper"; // 字幕来源
   language?: string;
+  transcription?: TranscriptionMetadata;
 }
 
 // ─── SRT 解析器 ───
@@ -119,7 +121,7 @@ export async function transcribeAudio(
   const onProgress = options?.onProgress;
 
   const result = await getWhisperClient().transcribe({ audio_path: audioPath, model, language }, onProgress);
-  return { ...result, source: "whisper" };
+  return { ...result, source: "whisper", transcription: { provider: "whisper", timing: "source" } };
 }
 
 // ─── 从自带字幕解析 ───
@@ -139,6 +141,7 @@ export async function parseBuiltinSubtitle(
     text: segments.map((s) => s.text).join(" "),
     segments,
     source: "builtin",
+    transcription: { provider: "builtin", timing: "source" },
   };
 }
 

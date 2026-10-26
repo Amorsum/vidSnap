@@ -7,6 +7,7 @@ import { promisify } from "util";
 import os from "os";
 import path from "path";
 import fs from "fs/promises";
+import type { VisionBudget } from "./vision-budget";
 
 const execFileAsync = promisify(execFile);
 
@@ -49,7 +50,9 @@ export async function extractKeyframes(
   duration: number,
   cap = 8,
   directory = TEMP_DIR,
+  budget?: VisionBudget,
 ): Promise<Keyframe[]> {
+  budget?.remainingMs();
   await fs.mkdir(directory, { recursive: true });
 
   const N = Math.max(1, Math.ceil(duration / cap));
@@ -63,8 +66,9 @@ export async function extractKeyframes(
     "-q:v", "4",
     "-frames:v", String(cap),
     outputTemplate,
-  ], { timeout: 120000 });
+  ], { timeout: Math.min(120000, budget?.remainingMs() ?? 120000), killSignal: "SIGKILL", windowsHide: true });
 
+  budget?.remainingMs();
   const files = await listFrameFiles(videoId, directory);
   if (files.length === 0) {
     throw new Error("关键帧提取失败：未生成任何帧文件");

@@ -1,4 +1,4 @@
-export type PipelineStage = "metadata" | "cache_lookup" | "cache_restore" | "workspace" | "download" | "transcript" | "vision" | "summary" | "embedding" | "persist";
+export type PipelineStage = "metadata" | "cache_lookup" | "cache_restore" | "inflight_wait" | "workspace" | "download" | "transcript" | "vision" | "summary" | "embedding" | "persist";
 export type StageOutcome = "completed" | "degraded" | "failed";
 export interface StageTiming { ms: number; outcome: StageOutcome }
 export interface PipelineTimings {

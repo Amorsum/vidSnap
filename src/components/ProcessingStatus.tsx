@@ -8,6 +8,9 @@ interface ProcessingStatusProps {
   step?: ProgressStep;
   progress?: number; // 0-100 动态百分比
   errorMessage?: string;
+  elapsed?: number;
+  retrySeconds?: number;
+  onRetry?: () => void;
 }
 
 const steps = [
@@ -30,6 +33,9 @@ export default function ProcessingStatus({
   step,
   progress,
   errorMessage,
+  elapsed = 0,
+  retrySeconds = 0,
+  onRetry,
 }: ProcessingStatusProps) {
   if (!isLoading && !errorMessage) return null;
 
@@ -40,13 +46,14 @@ export default function ProcessingStatus({
         <div>
           <p className="text-sm font-semibold text-red-700">解析遇到问题</p>
           <p className="mt-1 text-sm leading-6 text-red-600">{errorMessage}</p>
+          {onRetry && <button type="button" className="study-button mt-3" onClick={onRetry} disabled={retrySeconds > 0}>{retrySeconds > 0 ? `${retrySeconds} 秒后可重试` : "重试此链接"}</button>}
         </div>
       </div>
     );
   }
 
   const currentStepIndex = step ? steps.findIndex((s) => s.key === step) : -1;
-  const displayPercent = progress ?? 0;
+  const displayPercent = Math.min(95, progress ?? 0);
   const displayLabel = step ? (stepLabels[step] || "正在处理...") : "正在处理...";
 
   return (
@@ -58,7 +65,7 @@ export default function ProcessingStatus({
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-ink">AI 正在阅读这段视频</p>
-          <p className="mt-0.5 truncate text-xs text-muted">{displayLabel}</p>
+          <p className="mt-0.5 text-sm text-muted">{displayLabel} · 已用 {elapsed} 秒</p>
         </div>
         <span className="font-mono text-sm font-semibold tabular-nums text-brand">{displayPercent}%</span>
       </div>
@@ -67,7 +74,7 @@ export default function ProcessingStatus({
         <div className="flex items-center justify-between">
           <span className="sr-only">{displayLabel}</span>
         </div>
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-soft">
+        <div role="progressbar" aria-label="视频处理进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={displayPercent} className="h-1.5 w-full overflow-hidden rounded-full bg-surface-soft">
           <div
             className="h-full rounded-full bg-gradient-to-r from-brand to-[#8b84ff] transition-all duration-500 ease-out"
             style={{ width: `${displayPercent}%` }}

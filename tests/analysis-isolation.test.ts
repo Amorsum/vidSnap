@@ -12,6 +12,7 @@ let main: typeof import("../src/app/api/process/route");
 let followup: typeof import("../src/app/api/followup/route");
 let frames: typeof import("../src/app/api/frames/route");
 let verify: typeof import("../src/app/api/verify/route");
+let analysisStatus: typeof import("../src/app/api/analyses/[analysisId]/route");
 let sessions: typeof import("../src/lib/session");
 let analyses: typeof import("../src/lib/analysis-store");
 let transcripts: typeof import("../src/lib/transcript-store");
@@ -25,9 +26,11 @@ interface ProcessData {
   video: { id: string };
   frames: { src: string; time: number; description: string }[];
   cached: boolean;
+  shared: boolean;
   transcriptSource: string;
   transcriptSegments: { start: number; end: number; text: string }[];
-  metrics: { usage: unknown; cost: unknown; totalMs: number; summarizeMs: number; timings: PipelineTimings };
+  metrics: { usage: unknown; cost: unknown; totalMs: number; summarizeMs: number; timings: PipelineTimings;
+    visionStatus: { outcome: string; describedFrames: number; totalFrames: number; budgetMs: number } | null };
 }
 
 before(async () => {
@@ -37,6 +40,7 @@ before(async () => {
   followup = await import("../src/app/api/followup/route");
   frames = await import("../src/app/api/frames/route");
   verify = await import("../src/app/api/verify/route");
+  analysisStatus = await import("../src/app/api/analyses/[analysisId]/route");
   sessions = await import("../src/lib/session");
   analyses = await import("../src/lib/analysis-store");
   transcripts = await import("../src/lib/transcript-store");
@@ -52,11 +56,12 @@ after(async () => {
   mockState.restore();
 });
 
-function request(body: unknown, cookie = "", method = "POST", headers: Record<string, string> = {}) {
+function request(body: unknown, cookie = "", method = "POST", headers: Record<string, string> = {}, signal?: AbortSignal) {
   return new NextRequest("http://localhost/api/test", {
     method,
     headers: { "Content-Type": "application/json", "x-access-code": "isolation-test-only", "cf-connecting-ip": `test-isolation-${++sequence}`, cookie, ...headers },
     body: JSON.stringify(body),
+    signal,
   });
 }
 
@@ -126,26 +131,151 @@ for (const expires of ["analysis", "cache"]) {
   });
 }
 
-test("平台解析等待期间另一个同会话请求完成时，复查缓存避免重复总结", async () => {
+test("同会话规范链接变体在平台解析前合并，等待者不再解析或调用模型", { timeout: 15000 }, async () => {
   const verified = await verify.POST(request({ code: "isolation-test-only" }));
   const cookie = cookieFor(verified);
-  const summaryPause = mockState.pauseNext("summary");
-  let metadataPause: ReturnType<typeof mockState.pauseNext> | undefined;
+  const pause = mockState.pauseNext("metadata");
+  const before = mockState.counts();
   try {
     const first = processFor(cookie);
-    await summaryPause.started;
-    metadataPause = mockState.pauseNext("metadata");
-    const second = processFor(cookie);
-    await metadataPause.started;
-    summaryPause.release();
+    await pause.started;
+    const response = await main.POST(request({ url: `https://www.youtube.com/shorts/${videoId}?feature=share` }, cookie));
+    const read = response.text();
+    assert.equal(mockState.counts().metadata, before.metadata + 1);
+    pause.release();
     const completed = await first;
-    const counts = mockState.counts();
-    metadataPause.release();
-    const reused = await second;
-    assert.equal(reused.data.cached, true);
-    assert.equal(reused.data.analysisId, completed.data.analysisId);
-    assert.deepEqual(mockState.counts(), counts);
-  } finally { summaryPause.release(); metadataPause?.release(); }
+    const events = parseEvents(await read);
+    const reused: ProcessData = events.find((event) => event.type === "result").data;
+    assert.equal(completed.data.shared, false);
+    assert.equal(reused.cached, true);
+    assert.equal(reused.shared, true);
+    assert.equal(reused.analysisId, completed.data.analysisId);
+    assert.equal(reused.metrics.timings.stages.inflight_wait?.outcome, "completed");
+    assert.equal(reused.metrics.timings.stages.metadata, undefined);
+    assert.equal(reused.metrics.timings.firstTokenMs, null);
+    assert.equal(reused.metrics.usage, null);
+    assert.ok(!events.some((event) => event.type.startsWith("stream")));
+    for (const key of ["metadata", "summary"] as const) assert.equal(mockState.counts()[key], before[key] + 1);
+    const cached = await processFor(cookie);
+    assert.equal(cached.data.shared, false);
+    assert.equal(cached.data.cached, true);
+  } finally { pause.release(); }
+});
+
+function parseEvents(text: string) {
+  return text.split("\n\n").filter((line) => line.startsWith("data: ")).map((line) => JSON.parse(line.slice(6)));
+}
+
+for (const disconnect of ["abort", "cancel"]) {
+  test(`等待者 ${disconnect} 只脱离连接，不影响执行者或其他等待者`, { timeout: 15000 }, async () => {
+    const cookie = cookieFor(await verify.POST(request({ code: "isolation-test-only" })));
+    const pause = mockState.pauseNext("summary");
+    try {
+      const first = processFor(cookie);
+      await pause.started;
+      const controller = new AbortController();
+      const response = await main.POST(request({ url: `https://youtu.be/${videoId}` }, cookie, "POST", {}, controller.signal));
+      if (disconnect === "cancel") await response.body!.cancel();
+      else { controller.abort(); await response.text(); }
+      const third = processFor(cookie);
+      pause.release();
+      const [completed, joined] = await Promise.all([first, third]);
+      assert.equal(joined.data.analysisId, completed.data.analysisId);
+      assert.equal(joined.data.shared, true);
+      assert.ok(cache.getCachedResult(completed.data.analysisId));
+      assert.ok(transcripts.getTranscript(completed.data.analysisId));
+    } finally { pause.release(); }
+  });
+}
+
+test("执行者断连后继续完成，同会话等待者收到结果且只总结一次", { timeout: 15000 }, async () => {
+  const cookie = cookieFor(await verify.POST(request({ code: "isolation-test-only" })));
+  const pause = mockState.pauseNext("summary");
+  const before = mockState.counts();
+  try {
+    const controller = new AbortController();
+    const first = await main.POST(request({ url: `https://youtu.be/${videoId}` }, cookie, "POST", {}, controller.signal));
+    const read = first.text();
+    await pause.started;
+    const joined = await main.POST(request({ url: `https://youtu.be/${videoId}` }, cookie));
+    const joinedRead = joined.text();
+    controller.abort();
+    assert.ok(!parseEvents(await read).some((event) => event.type === "result"));
+    pause.release();
+    const data: ProcessData = parseEvents(await joinedRead).find((event) => event.type === "result").data;
+    created.add(data.analysisId);
+    assert.equal(data.shared, true);
+    assert.equal(mockState.counts().summary, before.summary + 1);
+    assert.ok(cache.getCachedResult(data.analysisId));
+    await assert.rejects(fs.stat(artifacts.analysisDirectory(data.analysisId, "media")), { code: "ENOENT" });
+  } finally { pause.release(); }
+});
+
+test("另一个会话的同视频在途请求保持独立执行", { timeout: 15000 }, async () => {
+  const pause = mockState.pauseNext("summary");
+  const before = mockState.counts();
+  try {
+    const first = processFor();
+    await pause.started;
+    const other = await processFor();
+    assert.equal(other.data.shared, false);
+    assert.equal(mockState.counts().metadata, before.metadata + 2);
+    assert.equal(mockState.counts().summary, before.summary + 2);
+    pause.release();
+    assert.notEqual((await first).data.analysisId, other.data.analysisId);
+  } finally { pause.release(); }
+});
+
+for (const stage of ["metadata", "summary"]) {
+  test(`共享执行 ${stage} 失败通知所有等待者，清理后同会话可以重试`, { timeout: 15000 }, async () => {
+    const cookie = cookieFor(await verify.POST(request({ code: "isolation-test-only" })));
+    const pause = mockState.pauseNext(stage);
+    mockState.fail(stage);
+    try {
+      const first = await main.POST(request({ url: `https://youtu.be/${videoId}` }, cookie));
+      const firstRead = first.text();
+      await pause.started;
+      const joined = await main.POST(request({ url: `https://youtu.be/${videoId}` }, cookie));
+      const joinedRead = joined.text();
+      pause.release();
+      const [a, b] = (await Promise.all([firstRead, joinedRead])).map(parseEvents);
+      const id = a.find((event) => event.analysisId)?.analysisId;
+      if (stage === "summary") assert.ok(id);
+      else assert.equal(id, undefined);
+      if (id) created.add(id);
+      assert.equal(a.find((event) => event.type === "error").message, b.find((event) => event.type === "error").message);
+      assert.ok(!b.some((event) => event.type === "result"));
+      assert.equal(b.find((event) => event.type === "error").metrics.timings.stages.inflight_wait.outcome, "failed");
+      if (id) await assert.rejects(fs.stat(artifacts.analysisDirectory(id)), { code: "ENOENT" });
+      mockState.fail();
+      assert.equal((await processFor(cookie)).data.cached, false);
+    } finally { pause.release(); mockState.fail(); }
+  });
+}
+
+test("删除共享分析立即释放等待者，新一轮不受旧执行收尾影响", { timeout: 15000 }, async () => {
+  const cookie = cookieFor(await verify.POST(request({ code: "isolation-test-only" })));
+  const pause = mockState.pauseNext("summary");
+  try {
+    const first = await main.POST(request({ url: `https://youtu.be/${videoId}` }, cookie));
+    const firstRead = first.text();
+    await pause.started;
+    const analysis = analyses.getOwnedAnalysis(sessions.getSessionId(request({}, cookie)), videoId)!;
+    created.add(analysis.id);
+    const joined = await main.POST(request({ url: `https://youtu.be/${videoId}` }, cookie));
+    const joinedRead = joined.text();
+    assert.equal((await main.DELETE(request({ videoId, analysisId: analysis.id }, cookie, "DELETE"))).status, 200);
+    const events = parseEvents(await joinedRead);
+    assert.match(events.find((event) => event.type === "error").message, /已删除或过期/);
+    assert.ok(!events.some((event) => event.type === "result"));
+    const fresh = await processFor(cookie);
+    assert.notEqual(fresh.data.analysisId, analysis.id);
+    pause.release();
+    assert.ok(!parseEvents(await firstRead).some((event) => event.type === "result"));
+    assert.equal(cache.getCachedResult(analysis.id), null);
+    assert.ok(cache.getCachedResult(fresh.data.analysisId));
+    assert.equal((await processFor(cookie)).data.analysisId, fresh.data.analysisId);
+  } finally { pause.release(); }
 });
 
 test("向量生成失败记录降级，仍返回总结且不假造未执行的视觉耗时", async () => {
@@ -324,7 +454,7 @@ test("未配置可选视觉/向量 key 仍完成文字总结，缺 usage 不伪�
   } finally { process.env.SENSEVOICE_API_KEY = previous; }
 });
 
-for (const stage of ["summary", "embedding", "download"]) {
+for (const stage of ["summary", "embedding", "download", "vision"]) {
   test(`处理在 ${stage} 阶段被删除：停止后续阶段且不回写结果`, { timeout: 15000 }, async () => {
     const pause = mockState.pauseNext(stage);
     try {
@@ -343,6 +473,34 @@ for (const stage of ["summary", "embedding", "download"]) {
       assert.equal(transcripts.getTranscript(analysis.id), null);
       await assert.rejects(fs.stat(artifacts.analysisDirectory(analysis.id)), { code: "ENOENT" });
     } finally { pause.release(); }
+  });
+}
+
+for (const mode of ["vision", "vision-timeout", "vision-short-budget"]) {
+  test(`${mode} 降级仍完成文字总结及追问，不缓存未完成画面证据`, { timeout: 15000 }, async () => {
+    const previous = process.env.VISION_TIMEOUT_MS;
+    const timeout = mode === "vision-short-budget" ? 1000 : 4000;
+    process.env.VISION_TIMEOUT_MS = String(timeout);
+    mockState.fail(mode);
+    const before = mockState.counts();
+    try {
+      const { data, cookie } = await processFor();
+      assert.equal(data.metrics.timings.stages.vision?.outcome, "degraded");
+      assert.equal(data.metrics.visionStatus?.outcome, mode === "vision" ? "failed" : "budget_exhausted");
+      assert.equal(data.metrics.visionStatus?.budgetMs, timeout);
+      assert.deepEqual(data.frames, []);
+      assert.ok(transcripts.getTranscript(data.analysisId)!.segments.every((segment) => !segment.text.startsWith("【画面】")));
+      assert.equal((await ask(data, cookie, "字幕内容是什么")).status, 200);
+      assert.equal(mockState.counts().vision, before.vision + (mode === "vision" ? 3 : mode === "vision-timeout" ? 1 : 0));
+      const cached = await processFor(cookie);
+      assert.equal(cached.data.cached, true);
+      assert.equal(cached.data.metrics.visionStatus, null, "缓存读取不冒充本次执行过视觉");
+      assert.deepEqual(cached.data.frames, []);
+    } finally {
+      mockState.fail();
+      if (previous === undefined) delete process.env.VISION_TIMEOUT_MS;
+      else process.env.VISION_TIMEOUT_MS = previous;
+    }
   });
 }
 
@@ -440,3 +598,43 @@ for (const mode of ["local-error", "local-empty"]) {
     } finally { mockState.asr(); }
   });
 }
+
+
+test("analysis status is read-only, owned, uncached, and respects expiry/deletion", async () => {
+  const initial = await processFor();
+  const status = (id = initial.data.analysisId, cookie = initial.cookie, code = "isolation-test-only") => analysisStatus.GET(
+    new NextRequest("http://localhost/api/analyses/" + id, { headers: { cookie, "x-access-code": code, "cf-connecting-ip": `status-${++sequence}` } }),
+    { params: Promise.resolve({ analysisId: id }) });
+  const active = await status();
+  assert.equal(active.status, 200);
+  assert.equal(active.headers.get("cache-control"), "private, no-store");
+  const data = await active.json();
+  assert.equal(data.canFollowUp, true);
+  const owner = sessions.getSessionId(request({}, initial.cookie));
+  const analysis = analyses.getOwnedAnalysis(owner, videoId, initial.data.analysisId)!;
+  assert.equal(data.expiresAt, analysis.contentExpiresAt);
+  assert.equal((await status(initial.data.analysisId, "")).status, 404);
+  assert.equal((await status("invalid")).status, 404);
+  assert.equal((await status(initial.data.analysisId, initial.cookie, "wrong")).status, 401);
+  transcripts.getTranscript(initial.data.analysisId)!.expiresAt = Date.now() - 1;
+  assert.equal((await (await status()).json()).canFollowUp, false);
+  analyses.revokeAnalysis(analysis);
+  assert.equal((await status()).status, 404);
+});
+
+test("learning metadata survives cache without renewing content deadlines", async () => {
+  mockState.asr("cloud-success");
+  try {
+    const first = await processFor();
+    const replay = await processFor(first.cookie);
+    const raw = first.events.find(event => event.type === "result").data;
+    const cached = replay.events.find(event => event.type === "result").data;
+    assert.deepEqual(raw.transcription, { provider: "sensevoice", timing: "estimated" });
+    assert.deepEqual(cached.transcription, raw.transcription);
+    assert.deepEqual(cached.vision, raw.vision);
+    assert.equal(cached.expiresAt, raw.expiresAt);
+    assert.equal(raw.platform, "youtube");
+    assert.equal(raw.canonicalUrl, `https://www.youtube.com/watch?v=${videoId}`);
+    assert.ok(raw.framesExpireAt > raw.expiresAt);
+  } finally { mockState.asr(); }
+});

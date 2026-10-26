@@ -5,10 +5,11 @@ import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import { VisionBudget, VisionBudgetExceeded } from "../src/lib/vision-budget";
 
 const url = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
 const id = "jNQXAC9IVRw";
-const calls: { operation: string; args: string[] }[] = [];
+const calls: { operation: string; args: string[]; timeout: number }[] = [];
 let mode = "good";
 let afterSubtitle = () => {};
 let video: typeof import("../src/lib/video-processor");
@@ -17,12 +18,12 @@ const original = childProcess.execFile;
 
 before(async () => {
   const replacement = () => { throw new Error("禁止真实网络和媒体进程"); };
-  Object.defineProperty(replacement, promisify.custom, { value: async (command: string, input: string[]) => {
+  Object.defineProperty(replacement, promisify.custom, { value: async (command: string, input: string[], options: { timeout: number }) => {
     assert.equal(command, "python");
     assert.ok(input[0].endsWith("media_network.py"));
     const operation = input[1];
     const args = operation === "yt-dlp" ? input.slice(3) : input.slice(2);
-    calls.push({ operation, args });
+    calls.push({ operation, args, timeout: options.timeout });
     if (operation === "subtitle") {
       const manual = new URL(args[0]).searchParams.get("kind") === "manual";
       const content = mode === "invalid" ? "WEBVTT\n\n00:00:05.000 --> 00:00:02.000\nInvalid time range.\n" : mode === "manual-empty" && manual ? ""
@@ -135,5 +136,20 @@ test("字幕阶段结束后已撤销的分析不再下载备用轨道或音频",
     await assert.rejects(platforms.getProcessor(url).download(url, info, directory, () => { if (!active) throw new Error("revoked"); }), /revoked/);
     assert.equal(calls.filter((call) => call.operation === "subtitle").length, 1);
     assert.equal(calls.some((call) => call.args.includes("-f")), false);
+  });
+});
+
+test("低清下载把共享剩余预算分给子进程，保留两秒清理且不足时不启动", async () => {
+  mode = "good";
+  await workspace(async (directory) => {
+    const info = await video.extractVideoInfo(url);
+    const budget = new VisionBudget(5000, () => 0);
+    const output = await platforms.getProcessor(url).downloadVideo!(url, info, directory, budget);
+    assert.equal(output, path.join(directory, `${id}-video.webm`));
+    assert.equal(calls.at(-1)?.timeout, 5000);
+    // Python 的预算参数由 Node 单独传入，边界进程内仍先停止其 yt-dlp 子进程。
+    const count = calls.length;
+    await assert.rejects(video.downloadLowResVideo(url, info, directory, new VisionBudget(2500, () => 0)), VisionBudgetExceeded);
+    assert.equal(calls.length, count);
   });
 });

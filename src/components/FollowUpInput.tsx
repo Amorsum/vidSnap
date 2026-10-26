@@ -15,6 +15,7 @@ export default function FollowUpInput({ onSubmit, isLoading }: FollowUpInputProp
       isLoading={isLoading}
       placeholder="向这段视频提问..."
       submitLabel={<Icon name="send" size={16} />}
+      submitAriaLabel="发送追问"
       containerClassName="w-full"
       inputClassName="py-3 text-sm"
       buttonClassName="h-10 w-10 px-0"

@@ -90,6 +90,7 @@ export async function transcribeWithSenseVoice(
   return {
     text: data.text,
     segments,
-    source: "whisper", // 统一标记，前端不区分来源
+    source: "whisper", // 保留旧字段兼容；实际来源与估算精度单独传递
+    transcription: { provider: "sensevoice", timing: "estimated" },
   };
 }

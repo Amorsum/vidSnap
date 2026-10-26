@@ -6,6 +6,7 @@ import { detectPlatform, UNSUPPORTED_PLATFORM_MESSAGE } from "./url-utils";
 import type { Platform } from "./url-utils";
 import type { VideoInfo, ProcessResult } from "./video-processor";
 import { extractVideoInfo, downloadAudio, downloadLowResVideo, tryDownloadSubtitles } from "./video-processor";
+import type { VisionBudget } from "./vision-budget";
 
 // 与 ProcessResult 字段一致（info + 音频路径 + 可选字幕路径）
 export type DownloadResult = ProcessResult;
@@ -16,7 +17,7 @@ export interface PlatformProcessor {
   /** 下载字幕/音频（info 为 getInfo 的结果，避免重复解析） */
   download(url: string, info: VideoInfo, directory: string, assertActive?: () => void): Promise<DownloadResult>;
   /** 下载低分辨率视频流（仅关键帧视觉理解阶段按需调用），失败抛错由调用方降级 */
-  downloadVideo?(url: string, info: VideoInfo, directory: string): Promise<string>;
+  downloadVideo?(url: string, info: VideoInfo, directory: string, budget?: VisionBudget): Promise<string>;
   /** 转写策略：短视频（<180s）是否使用 tiny 模型（抖音短视频专用） */
   useTinyForShortVideos?: boolean;
 }
@@ -36,7 +37,7 @@ const youtubeProcessor: PlatformProcessor = {
     const result = await downloadAudio(url, info, directory);
     return { info: result.info, audioPath: result.audioPath, subtitlePath: null };
   },
-  downloadVideo: (url, info, directory) => downloadLowResVideo(url, info, directory),
+  downloadVideo: (url, info, directory, budget) => downloadLowResVideo(url, info, directory, budget),
 };
 
 // ─── 抖音：Playwright 提取信息 + ffmpeg 下载 ───

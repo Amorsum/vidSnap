@@ -4,18 +4,17 @@ import { memo, useRef, useState } from "react";
 import type { VideoInfo } from "@/lib/video-processor";
 import Icon from "./Icon";
 import KeyframeGallery, { type FrameInfo } from "./KeyframeGallery";
-
-export interface SummaryResult {
-  overall: string;
-  videoType?: string;
-  segments: { title: string; start: number; end: number; points: { time: string; text: string }[] }[];
-}
+import type { SummaryResult } from "@/lib/learning-types";
+export type { SummaryResult } from "@/lib/learning-types";
 
 interface ResultPanelProps {
   video: VideoInfo;
   result: SummaryResult;
   transcriptSource: "builtin" | "whisper";
   frames?: FrameInfo[];
+  onReference?: (time: number) => void;
+  onExplain?: (start: number, end: number, title: string) => void;
+  canAsk?: boolean;
 }
 
 function formatDuration(seconds: number): string {
@@ -31,13 +30,14 @@ function parseTimeToSec(time: string): number {
   return (parts[0] || 0) + (parts[1] || 0) * 60 + (parts[2] || 0) * 3600;
 }
 
-export default memo(function ResultPanel({ video, result, transcriptSource, frames }: ResultPanelProps) {
+export default memo(function ResultPanel({ video, result, transcriptSource, frames, onReference, onExplain, canAsk }: ResultPanelProps) {
   const [imgError, setImgError] = useState(false);
   const segmentRefs = useRef<(HTMLElement | null)[]>([]);
   const [highlightIdx, setHighlightIdx] = useState<number | null>(null);
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleJump = (time: number) => {
+    if (onReference) { onReference(time); return; }
     let index = result.segments.findIndex((segment) => segment.start <= time && time <= segment.end);
     if (index < 0) {
       for (let i = result.segments.length - 1; i >= 0; i -= 1) {
@@ -167,6 +167,7 @@ export default memo(function ResultPanel({ video, result, transcriptSource, fram
                           </li>
                         ))}
                       </ul>
+                      {onExplain && <button type="button" className="study-button mt-4" disabled={!canAsk} onClick={() => onExplain(segment.start, segment.end, segment.title)}>解释这一段</button>}
                     </article>
                   </div>
                 ))}

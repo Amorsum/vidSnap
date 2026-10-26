@@ -1,30 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Header from "@/components/Header";
-import URLInput from "@/components/URLInput";
-import ProcessingStatus, { type ProgressStep } from "@/components/ProcessingStatus";
-import ResultPanel, { type SummaryResult } from "@/components/ResultPanel";
-import type { FrameInfo } from "@/components/KeyframeGallery";
-import ChatPanel, { type Turn } from "@/components/ChatPanel";
-import FollowUpInput from "@/components/FollowUpInput";
 import Footer from "@/components/Footer";
 import Icon from "@/components/Icon";
-import { sseLines } from "@/lib/sse";
-import type { VideoInfo } from "@/lib/video-processor";
-
-interface ProcessResult {
-  analysisId: string;
-  video: VideoInfo;
-  transcriptSource: "builtin" | "whisper";
-  transcriptText: string;
-  transcriptSegments: { start: number; end: number; text: string }[];
-  result: SummaryResult;
-  frames?: FrameInfo[];
-}
-
-// 追问条目的自增 id（模块级，用于按身份更新，避免按下标覆盖错条目）
-let turnIdSeq = 0;
+import LearningWorkspace from "@/components/LearningWorkspace";
 
 function LandingPreview() {
   return (
@@ -101,16 +81,6 @@ function LandingPreview() {
 }
 
 export default function Home() {
-  const [isLoading, setIsLoading] = useState(false);
-  const [progressStep, setProgressStep] = useState<ProgressStep>();
-  const [progressPercent, setProgressPercent] = useState(0);
-  const [errorMessage, setErrorMessage] = useState<string>();
-  const [result, setResult] = useState<ProcessResult | null>(null);
-  const [streamingText, setStreamingText] = useState<string>("");
-
-  const [conversation, setConversation] = useState<Turn[]>([]);
-  const [followUpLoading, setFollowUpLoading] = useState(false);
-
   // ─── 访问码门禁 ───
   const [mounted, setMounted] = useState(false);
   const [gatePassed, setGatePassed] = useState(false);
@@ -124,7 +94,7 @@ export default function Home() {
       const stored = localStorage.getItem("vidsnap_access_code") || "";
       const urlCode = new URLSearchParams(window.location.search).get("code") || "";
       const candidate = stored || urlCode;
-      if (candidate) {
+      {
         setAccessCode(candidate);
         setGateChecking(true);
         if (urlCode) {
@@ -182,131 +152,14 @@ export default function Home() {
     }
   };
 
-  const handleSubmit = useCallback(async (url: string) => {
-    setIsLoading(true);
-    setErrorMessage(undefined);
-    setResult(null);
-    setStreamingText("");
-    setProgressStep("downloading");
-    setProgressPercent(0);
-    setConversation([]);
-    // 新视频开始时重置追问状态，避免残留的「正在输入…」
-    setFollowUpLoading(false);
-
-    try {
-      const response = await fetch("/api/process", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Access-Code": accessCode },
-        body: JSON.stringify({ url, action: "summarize" }),
-      });
-
-      if (!response.ok) {
-        // 非流式错误（400 等）；401 说明访问码失效，退回门禁页
-        if (response.status === 401) {
-          localStorage.removeItem("vidsnap_access_code");
-          setAccessCode("");
-          setGatePassed(false);
-          setIsLoading(false);
-          return;
-        }
-        const data = await response.json();
-        setProgressStep("error");
-        setErrorMessage(data.error || "请求失败");
-        setIsLoading(false);
-        return;
-      }
-
-      // 读取 SSE 流
-      const reader = response.body?.getReader();
-      if (!reader) {
-        setProgressStep("error");
-        setErrorMessage("无法读取响应流");
-        setIsLoading(false);
-        return;
-      }
-
-      for await (const line of sseLines(reader)) {
-        if (line.startsWith("data: ")) {
-          try {
-            const event = JSON.parse(line.slice(6));
-            if (event.type === "progress") {
-              setProgressStep(event.step as ProgressStep);
-              if (typeof event.percent === "number") {
-                setProgressPercent(event.percent);
-              }
-            } else if (event.type === "result") {
-              setProgressStep("done");
-              setResult(event.data);
-              setStreamingText("");
-            } else if (event.type === "error") {
-              setProgressStep("error");
-              setErrorMessage(event.message);
-            } else if (event.type === "stream") {
-              // AI 流式输出增量
-              setStreamingText(prev => prev + event.text);
-            }
-          } catch {
-            // 跳过解析失败的行
-          }
-        }
-      }
-    } catch {
-      setProgressStep("error");
-      setErrorMessage("网络请求失败，请检查网络连接后重试");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [accessCode]);
-
-  // 当前在途追问的条目 id：只有它才能清除 loading，防止过期响应误清新追问的状态
-  const inFlightTurnRef = useRef<number | null>(null);
-
-  const handleFollowUp = useCallback(async (question: string) => {
-    // 已有追问进行中时忽略新请求（避免并发请求互相覆盖答案）
-    if (!result || followUpLoading) return;
-    setFollowUpLoading(true);
-    const turnId = ++turnIdSeq;
-    inFlightTurnRef.current = turnId;
-    // 立即显示用户的问题（像微信发送消息），answer 先留空
-    setConversation((prev) => [...prev, { id: turnId, question, answer: "" }]);
-
-    // 按条目 id 更新答案；若期间会话被清空（用户换了新视频），过期响应自然被丢弃
-    const updateTurn = (answer: string, toolsUsed?: string[]) => {
-      setConversation((prev) =>
-        prev.map((t) => (t.id === turnId ? { ...t, answer, toolsUsed } : t))
-      );
-    };
-
-    try {
-      const response = await fetch("/api/followup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Access-Code": accessCode },
-        body: JSON.stringify({ videoId: result.video.id, analysisId: result.analysisId, question }),
-      });
-      const data = await response.json();
-      if (response.status === 401) {
-        // 访问码失效：清码退回门禁页，丢弃本次追问
-        localStorage.removeItem("vidsnap_access_code");
-        setAccessCode("");
-        setGatePassed(false);
-        setConversation((prev) => prev.filter((t) => t.id !== turnId));
-      } else if (data.success) {
-        updateTurn(data.answer, data.toolsUsed);
-      } else {
-        updateTurn(data.error || "追问失败");
-      }
-    } catch {
-      updateTurn("网络请求失败，请稍后重试");
-    } finally {
-      if (inFlightTurnRef.current === turnId) {
-        inFlightTurnRef.current = null;
-        setFollowUpLoading(false);
-      }
-    }
-  }, [result, followUpLoading, accessCode]);
+  const handleUnauthorized = useCallback(() => {
+    localStorage.removeItem("vidsnap_access_code");
+    setAccessCode("");
+    setGatePassed(false);
+  }, []);
 
   return (
-    <div id="top" className="page-glow relative flex min-h-screen flex-col overflow-x-hidden">
+    <div id="top" className="page-glow relative flex min-h-screen flex-col overflow-x-clip">
       <div className="dot-grid pointer-events-none absolute inset-x-0 top-16 h-[560px] opacity-40" />
       <Header />
 
@@ -368,59 +221,9 @@ export default function Home() {
           </div>
         </main>
       ) : (
-        <main className="relative z-10 flex flex-1 flex-col items-center px-5 pb-16 sm:px-8">
-          <section className={`flex w-full flex-col items-center text-center transition-all ${result ? "pb-5 pt-8" : "pb-0 pt-14 sm:pt-20"}`}>
-            {!result && (
-              <div className="mb-5 flex items-center gap-2 rounded-full border border-brand/15 bg-white/70 px-3 py-1.5 text-xs font-semibold text-brand backdrop-blur">
-                <Icon name="sparkles" size={14} /> 字幕、画面与 AI 的联合理解
-              </div>
-            )}
-            <h1 className={`${result ? "text-2xl sm:text-3xl" : "max-w-3xl text-4xl leading-[1.12] sm:text-6xl"} font-bold tracking-[-0.055em] text-ink`}>
-              {result ? "继续解析下一段视频" : <>把一段视频，变成<br className="hidden sm:block" />可阅读、可追问的<span className="bg-gradient-to-r from-brand to-[#8a68e8] bg-clip-text text-transparent">知识</span></>}
-            </h1>
-            {!result && <p className="mt-5 max-w-2xl text-sm leading-7 text-muted sm:text-base">粘贴 YouTube 或抖音链接，VidSnap 会识别字幕、阅读关键画面，<br className="hidden sm:block" />为你整理视频脉络，并回答每一个后续问题。</p>}
-            <div className={`${result ? "mt-5" : "mt-8"} w-full flex justify-center`}>
-              <URLInput onSubmit={handleSubmit} isLoading={isLoading} />
-            </div>
-            {!result && !isLoading && !errorMessage && <p className="mt-3 text-xs text-faint">目前支持 YouTube · 抖音 · 外语视频自动输出中文</p>}
-          </section>
-
-          {(isLoading || errorMessage) && (
-            <div className="mt-6 flex w-full justify-center">
-              <ProcessingStatus isLoading={isLoading} step={progressStep} progress={progressPercent} errorMessage={errorMessage} />
-            </div>
-          )}
-
-          {!result && !isLoading && !errorMessage && !streamingText && <LandingPreview />}
-
-          {result && (
-            <section className="animate-rise-in mt-5 grid w-full max-w-7xl items-start gap-4 xl:grid-cols-[minmax(0,1fr)_400px]" aria-label="视频分析结果">
-              <div className="min-w-0">
-                <ResultPanel video={result.video} result={result.result} transcriptSource={result.transcriptSource} frames={result.frames} />
-              </div>
-              <aside className="surface-shadow flex min-h-[560px] flex-col overflow-hidden rounded-[24px] border border-line bg-white p-4 sm:p-5 xl:sticky xl:top-20 xl:h-[calc(100vh-100px)]" aria-label="视频追问对话">
-                <ChatPanel conversation={conversation} followUpLoading={followUpLoading} onExample={handleFollowUp} />
-                <div className="border-t border-line/80 pt-3">
-                  <FollowUpInput onSubmit={handleFollowUp} isLoading={followUpLoading} />
-                  <p className="mt-2 text-center text-[10px] text-faint">Agent 会基于视频原文与画面进行回答</p>
-                </div>
-              </aside>
-            </section>
-          )}
-
-          {streamingText && !result && (
-            <section className="surface-shadow mt-6 w-full max-w-3xl overflow-hidden rounded-2xl border border-line bg-white" aria-live="polite">
-              <div className="flex items-center gap-3 border-b border-line/80 px-5 py-4">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-soft text-brand"><Icon name="sparkles" size={17} /></div>
-                <div><h2 className="text-sm font-semibold text-ink">AI 正在组织视频脉络</h2><p className="mt-0.5 text-[11px] text-muted">已完成理解，正在生成可阅读的总结</p></div>
-                <span className="ml-auto flex gap-1"><i className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand" /><i className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand [animation-delay:150ms]" /><i className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand [animation-delay:300ms]" /></span>
-              </div>
-              <div className="max-h-80 overflow-y-auto bg-surface-soft/60 p-5">
-                <pre className="whitespace-pre-wrap font-sans text-sm leading-7 text-muted">{streamingText}</pre>
-              </div>
-            </section>
-          )}
-        </main>
+        <LearningWorkspace accessCode={accessCode} onUnauthorized={handleUnauthorized}>
+          <LandingPreview />
+        </LearningWorkspace>
       )}
 
       <Footer />

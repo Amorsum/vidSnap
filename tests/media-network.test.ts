@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import path from "node:path";
 import fs from "node:fs/promises";
 import os from "node:os";
+import { VisionBudget } from "../src/lib/vision-budget";
 
 const original = childProcess.execFile;
 const calls: { command: string; args: string[]; timeout: number }[] = [];
@@ -43,6 +44,22 @@ test("yt-dlp 元数据/字幕/媒体命令均通过有超时的 Python 网络边
     assert.deepEqual(call.args.slice(1), ["yt-dlp", "30", ...args]);
     assert.equal(call.timeout, 40000);
   }
+});
+
+test("视觉下载可缩短清理宽限，FFmpeg 使用同一剩余预算并等待进程结束", async () => {
+  await runYtDlp(["--no-playlist"], 3000, 2000);
+  assert.equal(calls.at(-1)?.args[2], "3");
+  assert.equal(calls.at(-1)?.timeout, 5000);
+  const { extractKeyframes } = await import("../src/lib/keyframes");
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "vidsnap-vision-extract-"));
+  const file = path.join(directory, "fixture-kf-001.jpg");
+  try {
+    await fs.writeFile(file, "fixture");
+    const result = await extractKeyframes("fixture.mp4", "fixture", 10, 8, directory, new VisionBudget(4000, () => 0));
+    assert.equal(result.length, 1);
+    assert.equal(calls.at(-1)?.command, "ffmpeg");
+    assert.equal(calls.at(-1)?.timeout, 4000);
+  } finally { await fs.unlink(file); await fs.rmdir(directory); }
 });
 
 test("抖音直链使用受控下载，不交给 FFmpeg 网络输入", async () => {

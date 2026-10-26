@@ -40,8 +40,9 @@ test("真实验收只允许专用环回端口，拒绝生产默认端口、远�
 });
 
 test("计时报告只选定已知有限数值，未知或敏感字段不会进入报告", () => {
-  const result = timingSummary({ totalMs: 30, private_key: "secret", timings: { ...timings, secret: "secret", stages: { ...timings.stages, private: { content: "secret" } } } });
+  const result = timingSummary({ totalMs: 30, private_key: "secret", timings: { ...timings, secret: "secret", stages: { ...timings.stages, inflight_wait: { ms: 15, outcome: "completed" }, private: { content: "secret" } } } });
   assert.doesNotMatch(JSON.stringify(result), /secret|private/);
+  assert.deepEqual(result.stages.inflight_wait, { ms: 15, outcome: "completed" });
   for (const invalid of [{}, { totalMs: NaN, timings }, { totalMs: 30, timings: { ...timings, resultReadyMs: -1 } },
     { totalMs: 30, timings: { ...timings, stages: { metadata: { ms: 1, outcome: "private-error" } } } }]) assert.throws(() => timingSummary(invalid));
 });

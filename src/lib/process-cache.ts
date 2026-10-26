@@ -7,6 +7,7 @@
  * - 自动清理超过 1 小时的记录
  * - 超过 50 条时触发清理
  */
+import type { TranscriptionMetadata, VisionMetadata } from "./learning-types";
 import type { TranscriptSegment } from "./transcriber";
 import type { VideoInfo } from "./video-processor";
 import type { FrameInfo } from "./vision";
@@ -15,6 +16,8 @@ import type { StoredSegment } from "./transcript-store";
 interface CachedProcessResult {
   video: VideoInfo;
   transcriptSource: "builtin" | "whisper";
+  transcription?: TranscriptionMetadata;
+  vision?: VisionMetadata;
   transcriptText: string;
   transcriptSegments: TranscriptSegment[];
   transcriptEmbeddings?: number[][];

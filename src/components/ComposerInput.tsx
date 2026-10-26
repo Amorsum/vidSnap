@@ -23,6 +23,8 @@ interface ComposerInputProps {
   ariaLabel?: string;
   /** 提交后是否清空输入；视频链接需要保留，追问默认清空 */
   clearOnSubmit?: boolean;
+  initialValue?: string;
+  submitAriaLabel?: string;
 }
 
 export default function ComposerInput({
@@ -38,8 +40,10 @@ export default function ComposerInput({
   hint,
   ariaLabel,
   clearOnSubmit = true,
+  initialValue = "",
+  submitAriaLabel,
 }: ComposerInputProps) {
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(initialValue);
 
   const handleSubmit = () => {
     if (!value.trim() || isLoading) return;
@@ -59,7 +63,7 @@ export default function ComposerInput({
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleSubmit();
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) handleSubmit();
             }}
             placeholder={placeholder}
             disabled={isLoading}
@@ -68,6 +72,7 @@ export default function ComposerInput({
           />
           <button
             type="button"
+            aria-label={submitAriaLabel}
             onClick={handleSubmit}
             disabled={!value.trim() || isLoading}
             className={`brand-shadow flex shrink-0 items-center justify-center rounded-xl bg-brand text-sm font-semibold text-white transition-all hover:-translate-y-0.5 hover:bg-brand-strong disabled:translate-y-0 disabled:cursor-not-allowed disabled:bg-[#b8b4ea] disabled:shadow-none ${buttonClassName}`}

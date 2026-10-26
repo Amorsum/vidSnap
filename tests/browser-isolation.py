@@ -79,8 +79,19 @@ async def workspace(browser, viewport, question):
         await page.get_by_role("button", name="开始解析").click()
     response = await processing.value
     assert response.status == 200
-    events = [json.loads(line[6:]) for line in (await response.text()).split("\n") if line.startswith("data: ")]
-    result = next((event["data"] for event in events if event["type"] == "result"), None)
+    await page.get_by_text("已保存到当前浏览器", exact=True).wait_for(state="visible")
+    # 客户端收到合法 result 后主动关闭 reader；从已提交的本地快照确认结果。
+    result = await page.evaluate("""() => new Promise((resolve, reject) => {
+        const request = indexedDB.open('vidsnap-notebook', 1);
+        request.onsuccess = () => {
+            const db = request.result;
+            const tx = db.transaction('notes', 'readonly');
+            const read = tx.objectStore('notes').getAll();
+            tx.oncomplete = () => { db.close(); resolve(read.result.sort((a,b) => b.lastViewedAt-a.lastViewedAt)[0]?.analysis); };
+            tx.onabort = () => reject(tx.error);
+        };
+        request.onerror = () => reject(request.error);
+    })""")
     assert result and result["analysisId"], "SSE 未正常完成"
     RESOURCES.append((page, result))
     await page.get_by_text("隔离测试总结", exact=True).wait_for(state="visible")
@@ -88,6 +99,9 @@ async def workspace(browser, viewport, question):
         const images = [...document.querySelectorAll('img[src^="/api/frames"]')];
         return images.length === 3 && images.every(image => image.complete && image.naturalWidth > 0);
     }""")
+    result["frames"] = await page.locator('img[src^="/api/frames"]').evaluate_all("images => images.map(image => ({src:image.getAttribute('src')}))")
+    await page.get_by_role("tab", name="追问", exact=True).click()
+    await page.wait_for_function("!document.querySelector('[aria-label=追问视频内容]').disabled")
     await page.get_by_role("textbox", name="追问视频内容").fill(question)
     async with page.expect_response(lambda response: response.url.endswith("/api/followup")) as asking:
         await page.get_by_role("textbox", name="追问视频内容").press("Enter")

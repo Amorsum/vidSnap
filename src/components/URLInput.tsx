@@ -7,13 +7,15 @@ import Icon from "./Icon";
 interface URLInputProps {
   onSubmit: (url: string) => void;
   isLoading: boolean;
+  initialValue?: string;
 }
 
-export default function URLInput({ onSubmit, isLoading }: URLInputProps) {
+export default function URLInput({ onSubmit, isLoading, initialValue }: URLInputProps) {
   return (
     <ComposerInput
       onSubmit={onSubmit}
       isLoading={isLoading}
+      initialValue={initialValue}
       placeholder="粘贴 YouTube / 抖音视频链接..."
       submitLabel={isLoading ? "正在解析" : "开始解析"}
       transformValue={extractUrl}

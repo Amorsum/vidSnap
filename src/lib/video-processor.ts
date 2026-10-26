@@ -9,6 +9,7 @@ import { parseBuiltinSubtitle } from "./transcriber";
 import { isValidVideoId } from "./request-validation";
 import { selectSubtitleTracks, SubtitleTrackHandoff, type SubtitleSelection } from "./subtitle-tracks";
 import { resolveMediaOutput } from "./media-output";
+import type { VisionBudget } from "./vision-budget";
 
 const TEMP_DIR = path.join(os.tmpdir(), "vidsnap");
 const COOKIES_FILE = path.join(process.cwd(), "cookies.txt");
@@ -151,24 +152,35 @@ export async function downloadAudio(url: string, preInfo?: VideoInfo, directory 
  * 格式链三层回退（240p → 144p），尽量降低下载体积与耗时
  * 失败由调用方 catch 降级为音频-only，不阻塞主流程
  */
-export async function downloadLowResVideo(url: string, preInfo?: VideoInfo, directory = TEMP_DIR): Promise<string> {
+export async function downloadLowResVideo(url: string, preInfo?: VideoInfo, directory = TEMP_DIR, budget?: VisionBudget): Promise<string> {
   url = normalizeVideoUrl(url);
   await ensureTempDir();
   const info = preInfo ?? (await extractVideoInfo(url));
   if (!isValidVideoId(info.id)) throw new Error("视频元信息中的 ID 无效");
   subtitleHandoff.take(info, url);
   const outputTemplate = path.join(directory, `${info.id}-video.%(ext)s`);
+  const commonArgs = await getCommonYtDlpArgs();
+  // 给 Python 杀死其 yt-dlp 子进程和关闭代理预留 2 秒，不能只让 Node 提前返回。
+  const timeout = budget ? Math.floor((budget.remainingMs(3000) - 2000) / 1000) * 1000 : 120000;
 
-  const { stdout } = await runYtDlp([
+  const args = [
     "-f", "best[height<=240]/bestvideo[height<=240]/best[height<=144]",
     "--output", outputTemplate,
     "--no-playlist",
     "--no-simulate", "--print", "after_move:%(filepath)j",
-    ...(await getCommonYtDlpArgs()),
+    ...commonArgs,
     ...getCookieArgs(),
     url,
-  ], 120000);
+  ];
+  let stdout: string;
+  try {
+    ({ stdout } = await runYtDlp(args, timeout, budget ? 2000 : 10000));
+  } catch (error) {
+    budget?.remainingMs(3000);
+    throw error;
+  }
 
+  budget?.remainingMs();
   return resolveMediaOutput(stdout, directory, `${info.id}-video`, ["mp4", "webm", "mkv", "m4v", "3gp"]);
 }
 

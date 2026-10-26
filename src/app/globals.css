@@ -45,8 +45,66 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
+}
+
+/* 学习工作区沿用品牌色；正文、引用与操作使用一致的可读字号及触控尺寸。 */
+.study-panel {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+  padding: 20px;
+  min-width: 0;
+}
+.study-button {
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  align-items: center;
+  justify-content: center;
+}
+.study-button:hover { background: var(--surface-soft); }
+button:disabled { cursor: not-allowed; opacity: 0.6; }
+.study-input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.6;
+}
+.study-workspace :is(button, a, input, textarea, summary):focus-visible,
+.study-button:focus-visible, .study-input:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+.study-chat { flex-direction: column; min-height: 480px; }
+.study-workspace [hidden] { display: none !important; }
+.study-workspace :is(h2, h3, p, li) { overflow-wrap: anywhere; }
+.study-workspace button[aria-label^="定位到"] { min-height: 44px; min-width: 44px; font-size: 12px; }
+.study-workspace .surface-shadow { box-shadow: none; }
+.study-workspace .text-faint { color: var(--muted); }
+.study-workspace [class*="text-[9px]"],
+.study-workspace [class*="text-[10px]"],
+.study-workspace [class*="text-[11px]"] { font-size: 12px; }
+.study-composer { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.study-composer input { font-size: 16px; }
+@media (min-width: 1280px) {
+  .study-chat { position: sticky; top: 80px; height: calc(100dvh - 100px); }
+}
+@media (max-width: 1279px) {
+  .study-tabs { position: sticky; top: 64px; z-index: 20; padding: 6px 0; background: var(--canvas); }
+  .study-chat { height: calc(var(--study-viewport, 100dvh) - 145px); min-height: 220px; scroll-margin-top: 126px; }
 }
 
 button,

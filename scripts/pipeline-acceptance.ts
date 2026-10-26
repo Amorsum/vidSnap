@@ -4,7 +4,7 @@ import { hasToolSyntax } from "../src/lib/llm";
 import { SAMPLE_ID, SAMPLE_URL } from "./media-smoke";
 import type { PipelineTimings, PipelineStage, StageOutcome } from "../src/lib/pipeline-timing";
 
-const STAGES: PipelineStage[] = ["metadata", "cache_lookup", "cache_restore", "workspace", "download", "transcript", "vision", "summary", "embedding", "persist"];
+const STAGES: PipelineStage[] = ["metadata", "cache_lookup", "cache_restore", "inflight_wait", "workspace", "download", "transcript", "vision", "summary", "embedding", "persist"];
 const OUTCOMES: StageOutcome[] = ["completed", "degraded", "failed"];
 type Check = { id: string; status: "pass" | "fail"; details: Record<string, unknown> };
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }

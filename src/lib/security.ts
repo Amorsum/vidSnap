@@ -22,14 +22,14 @@ export function verifyAccessCode(code: string | null): boolean {
 }
 
 /** 所有媒体处理入口共用 process 桶，避免轮换历史接口绕过额度。 */
-export function guardApiRequest(request: Request, bucket: "process" | "followup" | "delete"): Response | null {
+export function guardApiRequest(request: Request, bucket: "process" | "followup" | "delete" | "analysis"): Response | null {
   if (!verifyAccessCode(request.headers.get("x-access-code"))) {
     return Response.json(
       { success: false, error: "需要访问码，请向站长获取" },
       { status: 401 }
     );
   }
-  const originError = checkMutationOrigin(request);
+  const originError = request.method === "GET" ? null : checkMutationOrigin(request);
   if (originError) return originError;
   const limit = checkRateLimit(`${bucket}:${getClientIp(request)}`, bucket === "process" ? 10 : 30, 10 * 60 * 1000);
   if (!limit.allowed) {

@@ -78,6 +78,7 @@ export function installMockUpstream() {
         if (args.includes("--dump-json")) {
           counts.metadata++;
           await checkpoint("metadata");
+          if (failure === "metadata") throw new Error("模拟元信息解析失败 /private/path");
           const withSubtitle = !asrMode || ["empty-subtitle", "invalid-subtitle"].includes(asrMode);
           const subtitles = withSubtitle ? { "zh-Hans": [{ ext: "srt", url: "https://www.youtube.com/api/timedtext?lang=zh-Hans" }] } : {};
           return { stdout: JSON.stringify({ id: videoId, title: "隔离测试视频", duration: 20, thumbnail: "", uploader: "测试作者", subtitles, automatic_captions: {} }), stderr: "" };
@@ -131,6 +132,11 @@ export function installMockUpstream() {
     }
     if (typeof body.messages?.[0]?.content !== "string") {
       counts.vision++;
+      await checkpoint("vision");
+      if (failure === "vision") return Response.json({ error: "private-upstream-body" }, { status: 401 });
+      if (failure === "vision-timeout") return new Promise((_resolve, reject) => {
+        options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true });
+      });
       const prompt = body.messages[0].content[0].text;
       const ids = [...prompt.matchAll(/frameId=(\d+):/g)].map((match) => Number(match[1]));
       // 主模型先返回第二帧，备用模型补齐其余帧，刻意制造非顺序完成。

@@ -62,3 +62,10 @@ export function completeAnalysis(analysis: Analysis): number {
 export function revokeAnalysis(analysis: Analysis): void {
   analysis.status = "deleted";
 }
+
+/** 只读状态查询不按 videoId 猜测归属，不返回其他会话的存在信息。 */
+export function getOwnedAnalysisById(ownerId: string | null, analysisId: string): Analysis | null {
+  const analysis = analyses.get(analysisId);
+  return analysis && analysis.ownerId === ownerId && analysis.expiresAt > Date.now()
+    && analysis.status !== "deleted" && analysis.status !== "failed" ? analysis : null;
+}
