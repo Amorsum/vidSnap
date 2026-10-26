@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import URLInput from "./URLInput";
 import ProcessingStatus, { type ProgressStep } from "./ProcessingStatus";
 import ResultPanel from "./ResultPanel";
@@ -8,7 +8,10 @@ import ChatPanel from "./ChatPanel";
 import FollowUpInput from "./FollowUpInput";
 import TranscriptPanel from "./TranscriptPanel";
 import NotebookLibrary from "./NotebookLibrary";
-import type { StudyNote } from "@/lib/learning-types";
+import StudyTools from "./StudyTools";
+import ExcerptPanel from "./ExcerptPanel";
+import type { ExcerptDraft, StudyNote, StudyTurn } from "@/lib/learning-types";
+import { appendExcerpt, excerptKey, reviewAnswersQuestion } from "@/lib/study-tools";
 import { durableNote, exportMarkdown, formatTime, sourceUrl, transcriptionLabel, visionLabel } from "@/lib/learning";
 import { deleteNote, listNotes, saveNote } from "@/lib/notebook";
 import { readProcessResult, retryDeadline } from "@/lib/process-stream";
@@ -23,6 +26,7 @@ export default function LearningWorkspace({ accessCode, onUnauthorized, children
   const current = useRef<StudyNote | null>(null);
   const [storage, setStorage] = useState("正在打开本地笔记库…");
   const [storageFailed, setStorageFailed] = useState(false);
+  const [studyMessage, setStudyMessage] = useState("");
   const writeQueue = useRef<Promise<void>>(Promise.resolve());
   const writeVersion = useRef(0);
   const [loading, setLoading] = useState(false);
@@ -153,7 +157,7 @@ export default function LearningWorkspace({ accessCode, onUnauthorized, children
       const next: StudyNote = existing ? { ...existing, analysis, updatedAt: time, lastViewedAt: time } : {
         id: crypto.randomUUID(), version: 1, analysis, turns: [], personalNote: "", createdAt: time, updatedAt: time, lastViewedAt: time,
       };
-      showNote(next); persist(next); setAvailability("available"); setTab("summary"); setSelection(null);
+      showNote(next); persist(next); setAvailability("available"); setTab("summary"); setSelection(null); setStudyMessage("");
       setStep("done"); setProgress(100);
     } catch (failure) {
       if (!controller.signal.aborted) setError(failure instanceof TypeError ? "网络请求失败，请检查网络连接后重试" : failure instanceof Error ? failure.message : "处理失败，请重试");
@@ -161,7 +165,7 @@ export default function LearningWorkspace({ accessCode, onUnauthorized, children
   }, [accessCode, notes, onUnauthorized, persist, processRetryAt, showNote]);
 
   const canAsk = !!note && availability === "available" && note.analysis.expiresAt > now && !loading && !followUpLoading;
-  const ask = useCallback(async (question: string) => {
+  const ask = useCallback(async (question: string, purpose: StudyTurn["purpose"] = "question") => {
     const active = current.current;
     if (!active || asking.current || busy.current || availability !== "available" || active.analysis.expiresAt <= Date.now() || askRetryAt > Date.now()) return;
     asking.current = true;
@@ -173,7 +177,7 @@ export default function LearningWorkspace({ accessCode, onUnauthorized, children
       if (current.current?.id !== id) return;
       update(value => ({ ...value, updatedAt: Date.now(), turns: value.turns.map(t => t.id === turnId ? { ...t, answer, status, toolsUsed } : t) }));
     };
-    showNote({ ...active, turns: [...active.turns, { id: turnId, question, answer: "", status: "pending" }] });
+    showNote({ ...active, turns: [...active.turns, { id: turnId, question, answer: "", status: "pending", purpose }] });
     try {
       const response = await fetch("/api/followup", { method: "POST", headers: { "Content-Type": "application/json", "X-Access-Code": accessCode }, body: JSON.stringify({ analysisId: active.analysis.analysisId, videoId: active.analysis.video.id, question }), signal: controller.signal });
       const data = await response.json();
@@ -191,11 +195,28 @@ export default function LearningWorkspace({ accessCode, onUnauthorized, children
     workspace.current?.scrollIntoView({ block: "start", behavior: "auto" });
   }, []);
 
+  const excerptKeys = useMemo(() => new Set(note?.excerpts?.map(excerptKey) ?? []), [note?.excerpts]);
+  const addExcerpt = useCallback((draft: ExcerptDraft) => {
+    const active = current.current;
+    if (!active) return;
+    const excerpts = appendExcerpt(active.excerpts, draft, crypto.randomUUID(), Date.now());
+    if (excerpts === active.excerpts) { setStudyMessage("这段内容已在重点摘录中。"); return; }
+    update(value => ({ ...value, excerpts, updatedAt: Date.now() }));
+    setStudyMessage("已加入重点摘录，可在总结下方查看和导出。");
+  }, [update]);
+
+  const reviewAnswers = (questions: string) => {
+    const question = reviewAnswersQuestion(questions);
+    if (question) void ask(question, "review_answers");
+    else setStudyMessage("这组题目过长，请选择其中一题继续追问。");
+  };
+
   const open = (saved: StudyNote) => {
     if (busy.current || asking.current) return;
     const next = { ...saved, lastViewedAt: Date.now() };
     showNote(next); persist(next); setAvailability("checking"); setTab("summary"); setSelection(null); setError(""); setLastUrl("");
     setStatusVersion(version => version + 1);
+    setStudyMessage("");
   };
 
   const remove = (id: string) => {
@@ -246,6 +267,9 @@ export default function LearningWorkspace({ accessCode, onUnauthorized, children
         </div>
       </div>
 
+      <StudyTools disabled={!canAsk || askWait > 0} onAsk={ask} />
+      {studyMessage && <p role="status" className="mb-4 text-sm text-brand-strong">{studyMessage}</p>}
+
       <div className="study-tabs mb-4 flex gap-1" role="tablist" aria-label="学习内容">
         {tabs.map(item => <button key={item.id} id={`tab-${item.id}`} role="tab" aria-selected={tab === item.id} aria-controls={`panel-${item.id}`} tabIndex={tab === item.id ? 0 : -1} className={`min-h-11 flex-1 rounded-lg px-4 text-sm font-semibold ${tab === item.id ? "bg-brand text-white" : "bg-white text-ink"}`} onClick={() => chooseTab(item.id)} onKeyDown={event => {
           const index = tabs.findIndex(t => t.id === tab);
@@ -257,11 +281,12 @@ export default function LearningWorkspace({ accessCode, onUnauthorized, children
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className={`min-w-0 ${tab === "chat" ? "hidden xl:block" : ""}`}>
           <div id="panel-summary" role="tabpanel" aria-labelledby="tab-summary" hidden={tab === "transcript"}>
-            <ResultPanel key={note.id} video={note.analysis.video} result={note.analysis.result} transcriptSource={note.analysis.transcriptSource} frames={note.analysis.frames.map(f => ({ ...f, src: (note.analysis.framesExpireAt ?? 0) > now ? f.src : undefined }))} onReference={reference} canAsk={canAsk && askWait === 0} onExplain={(start, end, title) => void ask(`请解释 ${formatTime(start)} 到 ${formatTime(end)} 的「${title}」，基于该段原文说明核心概念，并引用时间。`)} />
+            <ResultPanel key={note.id} video={note.analysis.video} result={note.analysis.result} transcriptSource={note.analysis.transcriptSource} frames={note.analysis.frames.map(f => ({ ...f, src: (note.analysis.framesExpireAt ?? 0) > now ? f.src : undefined }))} onReference={reference} canAsk={canAsk && askWait === 0} onExplain={(start, end, title) => void ask(`请解释 ${formatTime(start)} 到 ${formatTime(end)} 的「${title}」，基于该段原文说明核心概念，并引用时间。`)} onExcerpt={addExcerpt} excerptKeys={excerptKeys} />
+            <ExcerptPanel excerpts={note.excerpts ?? []} onReference={reference} onRemove={id => update(value => ({ ...value, excerpts: value.excerpts?.filter(item => item.id !== id), updatedAt: Date.now() }))} />
             <section className="study-panel mt-4"><label htmlFor="personal-note" className="text-base font-semibold">我的笔记</label><p className="mb-3 mt-2 text-sm text-muted">写下你的理解、疑问或下一步行动。</p><textarea id="personal-note" className="study-input min-h-40 resize-y" value={note.personalNote} placeholder="这段视频对我有什么启发？" onChange={e => update(value => ({ ...value, personalNote: e.target.value, updatedAt: Date.now() }))} /></section>
           </div>
           <div id="panel-transcript" role="tabpanel" aria-labelledby="tab-transcript" hidden={tab !== "transcript"}>
-            {tab === "transcript" && <><TranscriptPanel key={`${note.id}-${selection?.sequence ?? "search"}`} analysis={note.analysis} selection={selection} />{selection && <button className="study-button mt-3" onClick={() => setSelection(null)}>返回字幕搜索</button>}</>}
+            {tab === "transcript" && <><TranscriptPanel key={`${note.id}-${selection?.sequence ?? "search"}`} analysis={note.analysis} selection={selection} onExcerpt={addExcerpt} excerptKeys={excerptKeys} />{selection && <button className="study-button mt-3" onClick={() => setSelection(null)}>返回字幕搜索</button>}</>}
           </div>
         </div>
         <aside id="panel-chat" role="tabpanel" aria-labelledby="tab-chat" className={`study-chat study-panel ${tab !== "chat" ? "hidden xl:flex" : "flex"}`}>
@@ -270,11 +295,11 @@ export default function LearningWorkspace({ accessCode, onUnauthorized, children
             {(availability === "unavailable" || note.analysis.expiresAt <= now) && <button className="study-button mt-2" disabled={loading || followUpLoading || processWait > 0} onClick={() => void submit(note.analysis.canonicalUrl)}>重新分析以继续追问</button>}
             {availability === "network" && <button className="study-button mt-2" onClick={() => { setAvailability("checking"); setStatusVersion(v => v + 1); }}>重试检查</button>}
           </div>
-          <ChatPanel key={note.id} conversation={note.turns} followUpLoading={followUpLoading} onExample={ask} onReference={reference} canAsk={canAsk && askWait === 0} />
+          <ChatPanel key={note.id} conversation={note.turns} followUpLoading={followUpLoading} onExample={ask} onReference={reference} canAsk={canAsk && askWait === 0} onExcerpt={addExcerpt} excerptKeys={excerptKeys} onReviewAnswers={reviewAnswers} />
           <div className="study-composer mt-3 border-t border-line pt-3">
             {askWait > 0 && <p className="mb-2 text-sm" role="status">请求较多，{askWait} 秒后可重试。</p>}
             <FollowUpInput onSubmit={ask} isLoading={!canAsk || askWait > 0} />
-            {note.turns.at(-1)?.status === "error" && <button className="study-button mt-2" disabled={!canAsk || askWait > 0} onClick={() => { const last = current.current?.turns.at(-1); if (last) void ask(last.question); }}>重试上个问题</button>}
+            {note.turns.at(-1)?.status === "error" && <button className="study-button mt-2" disabled={!canAsk || askWait > 0} onClick={() => { const last = current.current?.turns.at(-1); if (last) void ask(last.question, last.purpose); }}>重试上个问题</button>}
           </div>
         </aside>
       </div>

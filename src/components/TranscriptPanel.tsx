@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { AnalysisResult } from "@/lib/learning-types";
+import type { AnalysisResult, ExcerptDraft } from "@/lib/learning-types";
 import { formatTime, sourceUrl } from "@/lib/learning";
+import { excerptKey } from "@/lib/study-tools";
 
-interface Props { analysis: AnalysisResult; selection: { time: number; sequence: number } | null }
+interface Props { analysis: AnalysisResult; selection: { time: number; sequence: number } | null; onExcerpt?: (draft: ExcerptDraft) => void; excerptKeys?: ReadonlySet<string> }
 
 function highlight(text: string, query: string) {
   if (!query) return text;
@@ -20,7 +21,7 @@ function highlight(text: string, query: string) {
   return parts;
 }
 
-export default function TranscriptPanel({ analysis, selection }: Props) {
+export default function TranscriptPanel({ analysis, selection, onExcerpt, excerptKeys }: Props) {
   const [query, setQuery] = useState("");
   const [hit, setHit] = useState(0);
   const [limit, setLimit] = useState(200);
@@ -54,6 +55,7 @@ export default function TranscriptPanel({ analysis, selection }: Props) {
       {rows.slice(0, count).map(s => <div key={s.index} ref={s.index === activeIndex ? target : undefined} className={`rounded-xl p-3 ${s.index === activeIndex ? "bg-brand-soft ring-2 ring-brand/30" : "bg-surface-soft/60"}`}>
         <a href={sourceUrl(analysis, s.start)} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-sm font-semibold text-brand" aria-label={`打开原视频 ${formatTime(s.start)}`}>{formatTime(s.start)} — {formatTime(s.end)}</a>
         <p className="text-base leading-7 text-ink">{highlight(s.text, needle)}</p>
+        {onExcerpt && <button type="button" className="study-button mt-2" disabled={excerptKeys?.has(excerptKey({ kind: "transcript", text: s.text, start: s.start, end: s.end }))} onClick={() => onExcerpt({ kind: "transcript", text: s.text, start: s.start, end: s.end })}>{excerptKeys?.has(excerptKey({ kind: "transcript", text: s.text, start: s.start, end: s.end })) ? "已摘录" : "摘录原文"}</button>}
       </div>)}
       {!rows.length && <p className="py-8 text-sm text-muted">{needle ? "换一个关键词试试。" : "本次没有可用字幕。"}</p>}
       {rows.length > count && <button className="study-button w-full" onClick={() => setLimit(count + 200)}>显示更多字幕</button>}

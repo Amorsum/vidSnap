@@ -1,7 +1,8 @@
 import { memo, useEffect, useRef, type ReactNode } from "react";
 import Icon from "./Icon";
 import { parseTime } from "@/lib/learning";
-import type { StudyTurn } from "@/lib/learning-types";
+import type { ExcerptDraft, StudyTurn } from "@/lib/learning-types";
+import { excerptKey } from "@/lib/study-tools";
 
 export type Turn = StudyTurn;
 
@@ -11,6 +12,9 @@ interface ChatPanelProps {
   onExample?: (question: string) => void;
   onReference?: (time: number) => void;
   canAsk?: boolean;
+  onExcerpt?: (draft: ExcerptDraft) => void;
+  excerptKeys?: ReadonlySet<string>;
+  onReviewAnswers?: (questions: string) => void;
 }
 
 const EXAMPLES = [
@@ -149,10 +153,14 @@ function renderAnswer(text: string, onReference?: (time: number) => void) {
 interface TurnItemProps {
   turn: Turn;
   onReference?: (time: number) => void;
+  onExcerpt?: (draft: ExcerptDraft) => void;
+  excerptKeys?: ReadonlySet<string>;
+  onReviewAnswers?: (questions: string) => void;
+  canAsk?: boolean;
 }
 
 // memo：追问 loading 等父级状态变化时，未更新的历史问答不重渲染（含正则拆分）
-const TurnItem = memo(function TurnItem({ turn, onReference }: TurnItemProps) {
+const TurnItem = memo(function TurnItem({ turn, onReference, onExcerpt, excerptKeys, onReviewAnswers, canAsk }: TurnItemProps) {
   return (
     <div className="space-y-3 animate-rise-in">
       <div className="flex justify-end">
@@ -168,6 +176,10 @@ const TurnItem = memo(function TurnItem({ turn, onReference }: TurnItemProps) {
               <details className="mb-2 text-sm text-muted"><summary className="min-h-11 cursor-pointer py-2">查看检索方式</summary>{turn.toolsUsed.join(" → ")}</details>
             )}
             <div className="text-sm leading-6 text-[#36384c]">{renderAnswer(turn.answer, onReference)}</div>
+            {turn.status === "success" && <div className="mt-3 flex flex-wrap gap-2">
+              {onExcerpt && <button type="button" className="study-button" disabled={excerptKeys?.has(excerptKey({ kind: "answer", text: turn.answer }))} onClick={() => onExcerpt({ kind: "answer", text: turn.answer })}>{excerptKeys?.has(excerptKey({ kind: "answer", text: turn.answer })) ? "已摘录" : "摘录回答"}</button>}
+              {turn.purpose === "review" && onReviewAnswers && <button type="button" className="study-button" disabled={!canAsk} onClick={() => onReviewAnswers(turn.answer)}>查看参考答案</button>}
+            </div>}
           </div>
         </div>
       )}
@@ -175,7 +187,7 @@ const TurnItem = memo(function TurnItem({ turn, onReference }: TurnItemProps) {
   );
 });
 
-export default function ChatPanel({ conversation, followUpLoading, onExample, onReference, canAsk = true }: ChatPanelProps) {
+export default function ChatPanel({ conversation, followUpLoading, onExample, onReference, canAsk = true, onExcerpt, excerptKeys, onReviewAnswers }: ChatPanelProps) {
   const messages = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
   const latest = conversation.at(-1);
@@ -222,7 +234,7 @@ export default function ChatPanel({ conversation, followUpLoading, onExample, on
         )}
 
         {conversation.map((turn) => (
-          <TurnItem key={turn.id} turn={turn} onReference={onReference} />
+          <TurnItem key={turn.id} turn={turn} onReference={onReference} onExcerpt={onExcerpt} excerptKeys={excerptKeys} onReviewAnswers={onReviewAnswers} canAsk={canAsk} />
         ))}
 
         {followUpLoading && (

@@ -3,6 +3,45 @@ import { test } from "node:test";
 import { durableNote, exportMarkdown, formatTime, isAnalysisResult, isStudyNote, parseTime, sourceUrl } from "../src/lib/learning";
 import { readProcessResult, retryDeadline } from "../src/lib/process-stream";
 import type { StudyNote } from "../src/lib/learning-types";
+import { appendExcerpt, REVIEW_QUESTION, reviewAnswersQuestion, termQuestion } from "../src/lib/study-tools";
+
+test("摘录按来源和时间去重，拒绝无效范围且不修改旧数组", () => {
+  const draft = { kind: "transcript" as const, text: " 原文 ", start: 2, end: 5 };
+  const first = appendExcerpt([], draft, "one", 1);
+  assert.equal(first[0].text, "原文");
+  assert.equal(appendExcerpt(first, draft, "two", 2), first);
+  assert.equal(appendExcerpt(first, { ...draft, start: -1 }, "bad", 2), first);
+  assert.equal(appendExcerpt(first, { ...draft, end: 1 }, "bad", 2), first);
+  assert.equal(appendExcerpt(first, { ...draft, text: " " }, "bad", 2), first);
+  assert.equal(appendExcerpt(first, { ...draft, kind: "summary" }, "two", 2).length, 2);
+  assert.equal(first.length, 1);
+});
+
+test("学习提示明确依据边界，参考答案携带完整题目并限制长度", () => {
+  assert.equal(termQuestion("  "), null);
+  assert.equal(termQuestion("字".repeat(81)), null);
+  assert.match(termQuestion("  RAG  ")!, /"RAG"/);
+  assert.match(termQuestion("RAG")!, /补充知识/);
+  assert.match(REVIEW_QUESTION, /不提供答案/);
+  assert.match(reviewAnswersQuestion("第一题：如何应用？")!, /第一题：如何应用？/);
+  assert.equal(reviewAnswersQuestion("字".repeat(3201)), null);
+  assert.equal(reviewAnswersQuestion(" "), null);
+});
+
+test("旧版本笔记兼容，新摘录与学习用途可持久化和导出", () => {
+  assert.ok(isStudyNote({ ...fixture, turns: fixture.turns.filter(t => t.status === "success") }));
+  assert.deepEqual(durableNote(fixture).excerpts, []);
+  const note: StudyNote = { ...fixture, excerpts: appendExcerpt([], { kind: "transcript", text: "摘录内容", start: 2, end: 5 }, "excerpt", 10), turns: [{ id: 4, question: "复习", answer: "题目", status: "success", purpose: "review" }] };
+  const saved = durableNote(note);
+  assert.ok(isStudyNote(saved));
+  assert.equal(saved.turns[0].purpose, "review");
+  assert.equal(saved.excerpts?.[0].text, "摘录内容");
+  const markdown = exportMarkdown(saved, false);
+  for (const part of ["重点摘录", "字幕原文", "摘录内容", "00:02"]) assert.ok(markdown.includes(part), part);
+  assert.ok(!markdown.includes("never-persist"));
+  assert.ok(!isStudyNote({ ...saved, excerpts: [{ ...saved.excerpts![0], end: 1 }] }));
+  assert.ok(!isStudyNote({ ...saved, turns: [{ ...saved.turns[0], purpose: "invalid" }] }));
+});
 
 const fixture: StudyNote = {
   id: "local-note", version: 1, createdAt: 1, updatedAt: 2, lastViewedAt: 3, personalNote: "我的理解",

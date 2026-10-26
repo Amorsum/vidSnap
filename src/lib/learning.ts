@@ -1,4 +1,5 @@
 import type { AnalysisResult, StudyNote, SummaryResult, VisionMetadata } from "./learning-types";
+import { EXCERPT_LABELS } from "./study-tools";
 
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -71,7 +72,7 @@ export function durableNote(note: StudyNote): StudyNote {
     transcriptSegments: a.transcriptSegments.map(s => ({ ...s })), result: a.result,
     frames: a.frames.map(f => ({ time: f.time, description: f.description })),
   }, turns: note.turns.filter(t => t.status === "success").map(t => ({ ...t })),
-  personalNote: note.personalNote, createdAt: note.createdAt, updatedAt: note.updatedAt, lastViewedAt: note.lastViewedAt };
+  personalNote: note.personalNote, excerpts: (note.excerpts ?? []).map(item => ({ ...item })), createdAt: note.createdAt, updatedAt: note.updatedAt, lastViewedAt: note.lastViewedAt };
 }
 
 export function isStudyNote(value: unknown): value is StudyNote {
@@ -79,7 +80,13 @@ export function isStudyNote(value: unknown): value is StudyNote {
     && typeof value.personalNote === "string" && time(value.createdAt) && time(value.updatedAt) && time(value.lastViewedAt)
     && Array.isArray(value.turns) && value.turns.every(t => object(t) && typeof t.id === "number"
       && typeof t.question === "string" && typeof t.answer === "string" && t.status === "success"
-      && (t.toolsUsed === undefined || (Array.isArray(t.toolsUsed) && t.toolsUsed.every(tool => typeof tool === "string"))));
+      && (t.purpose === undefined || ["question", "term", "review", "review_answers"].includes(String(t.purpose)))
+      && (t.toolsUsed === undefined || (Array.isArray(t.toolsUsed) && t.toolsUsed.every(tool => typeof tool === "string"))))
+    && (value.excerpts === undefined || (Array.isArray(value.excerpts) && value.excerpts.every(item => object(item)
+      && typeof item.id === "string" && typeof item.text === "string" && !!item.text.trim()
+      && ["transcript", "summary", "answer"].includes(String(item.kind)) && time(item.createdAt)
+      && (item.start === undefined || time(item.start))
+      && (item.end === undefined || (time(item.end) && time(item.start) && item.end >= item.start)))));
 }
 
 function plain(text: string): string { return text.replace(/[\\`*_[\]<>#]/g, "\\$&").replace(/\r?\n/g, " "); }
@@ -95,6 +102,10 @@ export function exportMarkdown(note: StudyNote, includeTranscript: boolean): str
     for (const p of segment.points) lines.push(`- [${plain(p.time)}] ${plain(p.text)}`);
   }
   if (a.frames.length) { lines.push("", "## 画面依据", ""); for (const f of a.frames) lines.push(`- [${formatTime(f.time)}] ${plain(f.description)}`); }
+  if (note.excerpts?.length) {
+    lines.push("", "## 重点摘录", "");
+    for (const item of [...note.excerpts].reverse()) lines.push(`### ${EXCERPT_LABELS[item.kind]}${item.start === undefined ? "" : ` [${formatTime(item.start)}]`}`, "", plain(item.text), "");
+  }
   lines.push("", "## 我的笔记", "", note.personalNote || "（尚未填写）", "", "## 历史问答", "");
   for (const turn of note.turns.filter(t => t.status === "success")) lines.push(`### ${plain(turn.question)}`, "", turn.answer, "");
   if (includeTranscript) { lines.push("", "## 字幕原文", ""); for (const s of a.transcriptSegments) lines.push(`[${formatTime(s.start)}] ${plain(s.text)}`, ""); }

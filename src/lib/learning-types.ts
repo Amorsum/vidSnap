@@ -38,6 +38,19 @@ export interface StudyTurn {
   answer: string;
   toolsUsed?: string[];
   status?: "pending" | "error" | "success";
+  purpose?: "question" | "term" | "review" | "review_answers";
+}
+
+export interface ExcerptDraft {
+  kind: "transcript" | "summary" | "answer";
+  text: string;
+  start?: number;
+  end?: number;
+}
+
+export interface StudyExcerpt extends ExcerptDraft {
+  id: string;
+  createdAt: number;
 }
 
 export interface StudyNote {
@@ -46,6 +59,8 @@ export interface StudyNote {
   analysis: AnalysisResult;
   turns: StudyTurn[];
   personalNote: string;
+  /** 兼容已保存的 v1 笔记；缺省时视为空列表，不升级 IndexedDB 结构。 */
+  excerpts?: StudyExcerpt[];
   createdAt: number;
   updatedAt: number;
   lastViewedAt: number;

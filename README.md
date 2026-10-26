@@ -12,6 +12,8 @@
 
 以下为早期演示截图；新工作台的交互与验证范围见 [学习闭环说明](docs/LEARNING_WORKSPACE.md)。
 
+学习辅助界面（隔离测试数据）：[桌面截图](docs/screenshots/study-desktop.png) · [手机截图](docs/screenshots/study-mobile.png)。
+
 | 首页 | 视频理解工作台 | 移动端 |
 |------|------|------|
 | ![首页](docs/screenshots/home.png) | ![视频理解工作台](docs/screenshots/result.png) | ![移动端](docs/screenshots/mobile.png) |
@@ -23,6 +25,8 @@
 > 在线 Demo：<https://vidsnap.amorsum.top>（需访问码，本地运行 + Cloudflare 隧道，电脑在线时可用）
 
 ## 功能特性
+
+学习辅助已加入工作台：术语解释、先出题再按需查看参考答案、字幕/总结/问答重点摘录。摘录随本地笔记保存和 Markdown 导出，兼容已有笔记；详见 [使用说明](docs/LEARNING_WORKSPACE.md) 与 [本轮验证](docs/test-reports/TEST-20261026-STUDY-TOOLS.md)。上一批学习闭环与处理稳定性已由 `45b88d3` 推送至 `demo`。
 
 2026-10-26 新增 [单视频学习工作台](docs/LEARNING_WORKSPACE.md)：总结／字幕原文／追问联动、关键词搜索、章节解释、IndexedDB 本地笔记、个人笔记和 Markdown 导出。文本保存在当前浏览器，清除网站数据后会丢失；不长期保存帧图片，在线追问仍受服务器 1 小时保留期限制。处理失败保留已有笔记，生成期间不展示原始 JSON。本轮检查见 [学习工作台测试报告](docs/test-reports/TEST-20261026-LEARNING.md)；此前暂缓的真实平台验收仍待补齐。
 

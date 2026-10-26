@@ -4,7 +4,9 @@ import { memo, useRef, useState } from "react";
 import type { VideoInfo } from "@/lib/video-processor";
 import Icon from "./Icon";
 import KeyframeGallery, { type FrameInfo } from "./KeyframeGallery";
-import type { SummaryResult } from "@/lib/learning-types";
+import type { ExcerptDraft, SummaryResult } from "@/lib/learning-types";
+import { parseTime } from "@/lib/learning";
+import { excerptKey } from "@/lib/study-tools";
 export type { SummaryResult } from "@/lib/learning-types";
 
 interface ResultPanelProps {
@@ -15,6 +17,8 @@ interface ResultPanelProps {
   onReference?: (time: number) => void;
   onExplain?: (start: number, end: number, title: string) => void;
   canAsk?: boolean;
+  onExcerpt?: (draft: ExcerptDraft) => void;
+  excerptKeys?: ReadonlySet<string>;
 }
 
 function formatDuration(seconds: number): string {
@@ -30,7 +34,7 @@ function parseTimeToSec(time: string): number {
   return (parts[0] || 0) + (parts[1] || 0) * 60 + (parts[2] || 0) * 3600;
 }
 
-export default memo(function ResultPanel({ video, result, transcriptSource, frames, onReference, onExplain, canAsk }: ResultPanelProps) {
+export default memo(function ResultPanel({ video, result, transcriptSource, frames, onReference, onExplain, canAsk, onExcerpt, excerptKeys }: ResultPanelProps) {
   const [imgError, setImgError] = useState(false);
   const segmentRefs = useRef<(HTMLElement | null)[]>([]);
   const [highlightIdx, setHighlightIdx] = useState<number | null>(null);
@@ -153,7 +157,11 @@ export default memo(function ResultPanel({ video, result, transcriptSource, fram
                         </span>
                       </div>
                       <ul className="mt-4 space-y-3">
-                        {segment.points.map((point, pointIndex) => (
+                        {segment.points.map((point, pointIndex) => {
+                          const start = parseTime(point.time);
+                          const draft: ExcerptDraft = { kind: "summary", text: point.text, ...(start === null ? {} : { start }) };
+                          const saved = excerptKeys?.has(excerptKey(draft));
+                          return (
                           <li key={`${point.time}-${pointIndex}`} className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-2.5 text-sm leading-6 text-muted">
                             <button
                               type="button"
@@ -163,9 +171,9 @@ export default memo(function ResultPanel({ video, result, transcriptSource, fram
                             >
                               {point.time}
                             </button>
-                            <span>{point.text}</span>
+                            <div><span>{point.text}</span>{onExcerpt && <button type="button" className="study-button mt-2 block" disabled={saved} onClick={() => onExcerpt(draft)}>{saved ? "已摘录" : "摘录要点"}</button>}</div>
                           </li>
-                        ))}
+                        ); })}
                       </ul>
                       {onExplain && <button type="button" className="study-button mt-4" disabled={!canAsk} onClick={() => onExplain(segment.start, segment.end, segment.title)}>解释这一段</button>}
                     </article>
