@@ -2,7 +2,7 @@
  * 硅基流动 SenseVoice 语音转文字 API
  * 端点: POST https://api.siliconflow.cn/v1/audio/transcriptions
  * 模型: FunAudioLLM/SenseVoiceSmall
- * 文档: https://docs.siliconflow.cn/cn/api-reference/audio/create-audio-transcriptions
+ * 文档: https://docs.siliconflow.cn/docs/api/audio-transcriptions-post
  */
 import fs from "fs";
 import type { TranscriptResult, TranscriptSegment } from "./transcriber";
@@ -16,17 +16,18 @@ interface SenseVoiceResponse {
 /**
  * 将纯文本拆分为模拟分段（按中文标点断句）
  */
-function splitTextToSegments(text: string): TranscriptSegment[] {
+function splitTextToSegments(text: string, duration?: number): TranscriptSegment[] {
   const segments: TranscriptSegment[] = [];
   // 按中文/英文标点断句
   const sentences = text.split(/(?<=[。！？.!?\n])\s*/);
   let offset = 0;
+  const total = sentences.reduce((sum, sentence) => sum + sentence.trim().length, 0);
   for (const sentence of sentences) {
     const trimmed = sentence.trim();
     if (!trimmed) continue;
-    // 估算时长：中文约 4 字/秒，英文约 10 字符/秒
+    // 有已知总时长时按字符比例分配；否则使用保守语速估算。
     const charCount = trimmed.length;
-    const estimatedDuration = Math.max(0.5, charCount / 4);
+    const estimatedDuration = duration && Number.isFinite(duration) && duration > 0 ? duration * charCount / total : Math.max(0.5, charCount / 4);
     segments.push({
       start: offset,
       end: offset + estimatedDuration,
@@ -42,7 +43,8 @@ function splitTextToSegments(text: string): TranscriptSegment[] {
  */
 export async function transcribeWithSenseVoice(
   audioPath: string,
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void,
+  options?: { allowEmpty?: boolean; timeoutMs?: number; duration?: number },
 ): Promise<TranscriptResult> {
   const apiKey = process.env.SENSEVOICE_API_KEY;
   if (!apiKey) {
@@ -66,6 +68,7 @@ export async function transcribeWithSenseVoice(
       Authorization: `Bearer ${apiKey}`,
     },
     body: formData,
+    signal: AbortSignal.timeout(options?.timeoutMs ?? 120_000),
   });
 
   onProgress?.(60);
@@ -80,10 +83,11 @@ export async function transcribeWithSenseVoice(
   onProgress?.(80);
 
   if (!data.text || !data.text.trim()) {
+    if (options?.allowEmpty) return { text: "", segments: [], source: "whisper", transcription: { provider: "sensevoice", timing: "estimated" } };
     throw new Error("该视频没有检测到语音内容");
   }
 
-  const segments = splitTextToSegments(data.text);
+  const segments = splitTextToSegments(data.text, options?.duration);
 
   onProgress?.(100);
 

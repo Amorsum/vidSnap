@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { type VideoInfo, type ProcessResult } from "@/lib/video-processor";
 import { getTranscript, parseBuiltinSubtitle, type TranscriptResult } from "@/lib/transcriber";
 import { transcribeWithSenseVoice } from "@/lib/sensevoice";
+import { needsChunkedTranscription, transcribeLongAudio } from "@/lib/long-transcription";
 import { videoSourceUrl, parseVideoUrl, UNSUPPORTED_PLATFORM_MESSAGE, type Platform } from "@/lib/url-utils";
 import { getProcessor } from "@/lib/platforms";
 import { callLLMStreaming } from "@/lib/llm";
@@ -54,6 +55,7 @@ function getUserFacingProcessError(error: unknown, platform: Platform): string {
 
   // execFile.message 包含命令参数；错误分类只读 stderr，避免 --cookies 误判所有失败为登录问题。
   const message = "stderr" in error && typeof error.stderr === "string" && error.stderr ? error.stderr : error.message;
+  if (/^转写第 \d+\/\d+ 段失败|^音频第 \d+\/\d+ 段切分失败|^音频分段准备失败|^音频时长超出当前转写范围|^音频文件不可用/.test(message)) return message;
   if (/Media network policy rejected target/i.test(message)) {
     return "视频下载地址未通过服务器网络校验，请稍后重试或联系管理员检查媒体网络配置。";
   }
@@ -116,22 +118,30 @@ function parseAIJSON<T>(text: string): T {
 async function getTranscriptSmart(
   processResult: ProcessResult,
   send: (data: unknown) => void,
-  options?: { model?: string }
+  options: { model?: string; duration: number; assertActive: () => void }
 ): Promise<TranscriptResult> {
+  send(progress("transcribing", mapPhaseProgress("transcribing", 0)));
+  if (await needsChunkedTranscription(processResult.audioPath, options.duration)) {
+    return transcribeLongAudio(processResult.audioPath, {
+      ...options,
+      onProgress: (percent) => send(progress("transcribing", mapPhaseProgress("transcribing", percent))),
+    });
+  }
   const hasCloudKey = !!process.env.SENSEVOICE_API_KEY;
 
   if (hasCloudKey) {
     // 云端 SenseVoice 转写（快、准、免 GPU）
-    send(progress("transcribing", mapPhaseProgress("transcribing", 0)));
     try {
       const result = await transcribeWithSenseVoice(
         processResult.audioPath,
         (subPercent) => {
           send(progress("transcribing", mapPhaseProgress("transcribing", subPercent)));
-        }
+        },
+        { duration: options.duration },
       );
       return result;
     } catch (err) {
+      options.assertActive();
       console.log("[sensevoice] 云端转写失败，降级到本地 Whisper:", err);
     }
   }
@@ -496,7 +506,7 @@ export async function POST(request: NextRequest) {
                 // 短视频用 tiny 模型提速（仅抖音；YouTube 保持默认模型保证转写质量）
                 const isShortVideo = currentInfo.duration < 180;
                 const model = processor.useTinyForShortVideos && isShortVideo && process.env.WHISPER_MODEL !== "tiny" ? "tiny" : undefined;
-                result = await getTranscriptSmart(downloadResult, send, { model });
+                result = await getTranscriptSmart(downloadResult, send, { model, duration: currentInfo.duration, assertActive: () => assertAnalysisActive(currentAnalysis) });
               }
               if (result.segments.length === 0) {
                 throw new Error("该视频没有检测到语音内容（可能是纯音乐或无声视频），无法生成文字总结");

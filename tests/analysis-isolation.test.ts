@@ -719,3 +719,29 @@ test("B 站媒体策略拒绝时，SSE 提示网络校验而非错误要求登�
     assert.doesNotMatch(failure.message, /登录|cookies/);
   } finally { mockState.fail(); }
 });
+
+test("长视频经 SSE 分段转写，缓存保留时间偏移与估算标记", async () => {
+  mockState.asr("cloud-long");
+  const url = "https://www.bilibili.com/video/BV1xx411c7mD?p=1";
+  const before = mockState.counts();
+  try {
+    const response = await main.POST(request({ url }));
+    const cookie = cookieFor(response);
+    const events = parseEvents(await response.text());
+    const data = events.find(event => event.type === "result")?.data;
+    assert.ok(data);
+    created.add(data.analysisId);
+    assert.deepEqual(data.transcription, { provider: "sensevoice", timing: "estimated" });
+    assert.deepEqual(data.transcriptSegments.map((segment: { start: number }) => segment.start), [0, 300, 600]);
+    assert.equal(mockState.counts().cloud - before.cloud, 3);
+    assert.ok(events.some(event => event.type === "progress" && event.step === "transcribing"));
+    assert.ok(events.some(event => event.type === "stream_start"));
+    assert.ok(events.some(event => event.type === "stream_end"));
+    const cached = await main.POST(request({ url }, cookie));
+    const replay = parseEvents(await cached.text()).find(event => event.type === "result")?.data;
+    assert.equal(replay.cached, true);
+    assert.deepEqual(replay.transcriptSegments, data.transcriptSegments);
+    assert.deepEqual(replay.transcription, data.transcription);
+    assert.equal(mockState.counts().cloud - before.cloud, 3);
+  } finally { mockState.asr(); }
+});

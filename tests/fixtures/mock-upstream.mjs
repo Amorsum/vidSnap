@@ -81,7 +81,7 @@ export function installMockUpstream() {
           if (failure === "metadata") throw new Error("模拟元信息解析失败 /private/path");
           const withSubtitle = failure !== "network-policy" && (!asrMode || ["empty-subtitle", "invalid-subtitle"].includes(asrMode));
           const subtitles = withSubtitle ? { "zh-Hans": [{ ext: "srt", url: "https://www.youtube.com/api/timedtext?lang=zh-Hans" }] } : {};
-          return { stdout: JSON.stringify({ id: videoId, title: "隔离测试视频", duration: 20, thumbnail: "", uploader: "测试作者", subtitles, automatic_captions: {} }), stderr: "" };
+          return { stdout: JSON.stringify({ id: videoId, title: "隔离测试视频", duration: asrMode === "cloud-long" ? 605 : 20, thumbnail: "", uploader: "测试作者", subtitles, automatic_captions: {} }), stderr: "" };
         }
         counts.download++;
         const template = args[args.indexOf("--output") + 1];
@@ -111,8 +111,13 @@ export function installMockUpstream() {
         const segments = asrMode === "local-empty" ? [] : [{ start: 0, end: 5, text: "本地转写证据" }];
         return { stdout: JSON.stringify({ text: segments.map((segment) => segment.text).join(" "), segments, language: "zh" }), stderr: "" };
       }
+      if (command === "ffprobe" && asrMode === "cloud-long") return { stdout: JSON.stringify({ format: { duration: "605" } }), stderr: "" };
       if (command === "ffmpeg") {
         const template = args.at(-1);
+        if (args.includes("-c:a")) {
+          await fs.writeFile(template, "mock-audio-chunk");
+          return { stdout: "", stderr: "" };
+        }
         const pixel = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
         for (let index = 1; index <= 3; index++) {
           await fs.writeFile(template.replace("%03d", String(index).padStart(3, "0")), Buffer.concat([pixel, Buffer.from(`mock-frame-${index}`)]));
@@ -126,7 +131,7 @@ export function installMockUpstream() {
   globalThis.fetch = async (url, options) => {
     if (String(url).endsWith("/audio/transcriptions")) {
       counts.cloud++;
-      return asrMode === "cloud-success" ? Response.json({ text: "云端转写证据。" }) : Response.json({ error: "模拟云端故障" }, { status: 503 });
+      return ["cloud-success", "cloud-long"].includes(asrMode) ? Response.json({ text: "云端转写证据。" }) : Response.json({ error: "模拟云端故障" }, { status: 503 });
     }
     const body = JSON.parse(options.body);
     if (String(url).endsWith("/embeddings")) {
