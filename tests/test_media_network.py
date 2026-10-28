@@ -36,7 +36,7 @@ class Response:
 
 class MediaNetworkTests(unittest.TestCase):
     def setUp(self):
-        environment = patch.dict(os.environ, {"MEDIA_UPSTREAM_PROXY": ""})
+        environment = patch.dict(os.environ, {"MEDIA_UPSTREAM_PROXY": "", "MEDIA_DNS_MODE": "system"})
         environment.start()
         self.addCleanup(environment.stop)
 

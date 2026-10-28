@@ -79,15 +79,15 @@ export function installMockUpstream() {
           counts.metadata++;
           await checkpoint("metadata");
           if (failure === "metadata") throw new Error("模拟元信息解析失败 /private/path");
-          const withSubtitle = failure !== "network-policy" && (!asrMode || ["empty-subtitle", "invalid-subtitle"].includes(asrMode));
+          const withSubtitle = !["network-policy", "dns-policy", "dns-unavailable"].includes(failure) && (!asrMode || ["empty-subtitle", "invalid-subtitle"].includes(asrMode));
           const subtitles = withSubtitle ? { "zh-Hans": [{ ext: "srt", url: "https://www.youtube.com/api/timedtext?lang=zh-Hans" }] } : {};
           return { stdout: JSON.stringify({ id: videoId, title: "隔离测试视频", duration: asrMode === "cloud-long" ? 605 : 20, thumbnail: "", uploader: "测试作者", subtitles, automatic_captions: {} }), stderr: "" };
         }
         counts.download++;
         const template = args[args.indexOf("--output") + 1];
-        if (failure === "network-policy") {
+        if (["network-policy", "dns-policy", "dns-unavailable"].includes(failure)) {
           const error = new Error("模拟受控代理拒绝");
-          error.stderr = "Tunnel connection failed: 403 Media network policy rejected target";
+          error.stderr = `${failure === "dns-policy" ? "Media DNS non-public answer" : failure === "dns-unavailable" ? "Media DNS resolution failed" : ""}\nTunnel connection failed: 403 Media network policy rejected target`;
           throw error;
         }
         if (failure === "download") {

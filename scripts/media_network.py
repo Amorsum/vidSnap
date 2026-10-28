@@ -17,6 +17,7 @@ import sys
 import threading
 import time
 from urllib.parse import urljoin, urlsplit, unquote, parse_qs
+from media_dns import MediaDnsError, resolve_doh
 
 
 HOSTS = {
@@ -29,6 +30,10 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrom
 
 
 class NetworkPolicyError(ValueError):
+    pass
+
+
+class NonPublicDnsError(NetworkPolicyError):
     pass
 
 
@@ -86,9 +91,17 @@ def connect_upstream_proxy(proxy_url, target_ip, timeout, port=443):
 
 def open_public_connection(host, scope, timeout=15, port=443):
     validate_url("https://" + host + ":" + str(port), scope)
-    addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    mode = os.environ.get("MEDIA_DNS_MODE", "system").strip().lower()
+    if mode == "system":
+        addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    elif mode == "doh":
+        upstream = os.environ.get("MEDIA_UPSTREAM_PROXY")
+        dial = (lambda address, budget: connect_upstream_proxy(upstream, address, budget)) if upstream else None
+        addresses = resolve_doh(host, port, dial)
+    else:
+        raise NetworkPolicyError("不支持的 MEDIA_DNS_MODE 配置")
     if not addresses or any(not is_public_address(entry[4][0]) for entry in addresses):
-        raise NetworkPolicyError("拒绝非公网 DNS 地址")
+        raise NonPublicDnsError("拒绝非公网 DNS 地址")
     # 连接刚刚校验过的 sockaddr，不能再次按主机名解析，避免 DNS 重绑定。
     last_error = None
     for family, kind, protocol, _, target in addresses:
@@ -252,6 +265,14 @@ class MediaProxyHandler(http.server.BaseHTTPRequestHandler):
                             return
                         destination = upstream if source is self.connection else self.connection
                         destination.sendall(payload)
+        except NonPublicDnsError:
+            print("[media-network] Media DNS non-public answer", file=sys.stderr)
+            if not connected:
+                self.deny()
+        except MediaDnsError:
+            print("[media-network] Media DNS resolution failed", file=sys.stderr)
+            if not connected:
+                self.deny()
         except (OSError, ValueError):
             if not connected:
                 self.deny()

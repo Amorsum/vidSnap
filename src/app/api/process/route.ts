@@ -55,6 +55,12 @@ function getUserFacingProcessError(error: unknown, platform: Platform): string {
 
   // execFile.message 包含命令参数；错误分类只读 stderr，避免 --cookies 误判所有失败为登录问题。
   const message = "stderr" in error && typeof error.stderr === "string" && error.stderr ? error.stderr : error.message;
+  if (/NonPublicDnsError|Media DNS non-public answer/i.test(message)) {
+    return "服务器 DNS 返回了虚拟或非公网地址，请联系管理员检查媒体 DNS 配置后重试。";
+  }
+  if (/MediaDnsError|Media DNS resolution failed/i.test(message)) {
+    return "服务器的媒体 DNS 解析服务暂时不可用，请稍后重试。";
+  }
   if (/^转写第 \d+\/\d+ 段失败|^音频第 \d+\/\d+ 段切分失败|^音频分段准备失败|^音频时长超出当前转写范围|^音频文件不可用/.test(message)) return message;
   if (/Media network policy rejected target/i.test(message)) {
     return "视频下载地址未通过服务器网络校验，请稍后重试或联系管理员检查媒体网络配置。";

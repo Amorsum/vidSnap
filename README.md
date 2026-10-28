@@ -154,6 +154,8 @@ npm run dev
 
 Bilibili 部分媒体 CDN 使用 HTTPS 8082 端口；该端口仅对 `*.mcdn.bilivideo.cn` 放行，仍校验公网 DNS 与连接目标。
 
+本机代理将域名解析为 fake-IP 而导致下载被拒绝时，可在 `.env.local` 设置 `MEDIA_DNS_MODE=doh`，让 VidSnap 使用独立加密 DNS；域名和公网地址校验仍保留，详见 [媒体网络说明](docs/MEDIA_NETWORK.md#本机代理返回-fake-ip-时)。
+
 媒体出站默认直连，不自动使用系统/环境代理或 yt-dlp 本地配置。需要代理时在 `.env.local` 配置 `MEDIA_UPSTREAM_PROXY=http://127.0.0.1:<HTTP或mixed端口>`，并保证 DNS 返回真实公网地址；迁移限制及完整规则见 [媒体网络说明](docs/MEDIA_NETWORK.md)。
 
 本地转写可配置 `WHISPER_TIMEOUT_MS`（默认 600000）和 `WHISPER_STARTUP_TIMEOUT_MS`（默认 120000）；队列满/超时明确失败，不并行启动脚本绕过限制。配置、协议兼容和恢复边界见 [Whisper 恢复说明](docs/WHISPER_RECOVERY.md)。

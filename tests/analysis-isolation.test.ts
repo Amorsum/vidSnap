@@ -745,3 +745,16 @@ test("长视频经 SSE 分段转写，缓存保留时间偏移与估算标记", 
     assert.equal(mockState.counts().cloud - before.cloud, 3);
   } finally { mockState.asr(); }
 });
+
+for (const [mode, expected] of [["dns-policy", /虚拟或非公网/], ["dns-unavailable", /DNS 解析服务暂时不可用/]] as const) {
+  test(`${mode} 通过 SSE 说明 DNS 原因，不误报平台登录限制`, async () => {
+    mockState.fail(mode);
+    try {
+      const response = await main.POST(request({ url: "https://www.bilibili.com/video/BV1xx411c7mD?p=1" }));
+      const failure = parseEvents(await response.text()).find(event => event.type === "error");
+      assert.ok(failure);
+      assert.match(failure.message, expected);
+      assert.doesNotMatch(failure.message, /登录|cookies/);
+    } finally { mockState.fail(); }
+  });
+}

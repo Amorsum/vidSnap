@@ -179,6 +179,7 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-10-28 | 媒体独立 DNS | 增加可选 DoH 解决系统 fake-IP 误拦截，保留域名/公网 IP/TLS 保护并区分 DNS 错误；302 项回归、构建及失败链接真实完整音频验证通过，已部署。 | scripts/media_dns.py, scripts/media_network.py, docs/MEDIA_NETWORK.md | ✅ 已完成 |
 | 2026-10-28 | 长视频转写与发布 | 音频分段、云端超时、本地逐段降级和估算时间；真实 19 秒及约 41 分钟文字链路通过，292 项回归与构建通过，生产重启及公网入口验收完成。 | src/lib/long-transcription.ts, src/lib/sensevoice.ts, docs/LONG_VIDEO.md | ✅ 已完成 |
 | 2026-10-28 | B 站媒体兼容 | 修复 B 站 mcdn 8082 音频下载被误拦截和登录误报，实测完整音频及 FFprobe，285 项回归、lint、构建与公网入口验证通过；真实转写/总结仍待验收。 | scripts/media_network.py, src/app/api/process/route.ts, docs/MEDIA_NETWORK.md | ✅ 已完成 |
 | 2026-10-28 | B 站学习入口与发布 | 接入 BV/av、短链与分 P，移除访问码并保留匿名资源保护；281 项回归、真实媒体及桌面/手机验证通过，更新生产构建并重启，本机与公网新版页面验收通过。 | src/lib/video-processor.ts, src/lib/url-utils.ts, scripts/start-services.ps1 | ✅ 已完成 |
