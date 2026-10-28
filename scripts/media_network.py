@@ -38,7 +38,9 @@ def validate_url(url, scope):
     try:
         parts = urlsplit(url)
         host = parts.hostname or ""
-        if parts.scheme != "https" or parts.port not in (None, 443) or parts.username is not None or parts.password is not None:
+        bili_media_port = (scope == "bilibili" and parts.port == 8082
+                           and host.endswith(".mcdn.bilivideo.cn"))
+        if parts.scheme != "https" or (parts.port not in (None, 443) and not bili_media_port) or parts.username is not None or parts.password is not None:
             raise ValueError()
         if not re.fullmatch(r"[a-z0-9.-]+", host) or host.endswith("."):
             raise ValueError()
@@ -61,7 +63,7 @@ def is_public_address(value):
             and address not in ipaddress.ip_network("2001::/23"))
 
 
-def connect_upstream_proxy(proxy_url, target_ip, timeout):
+def connect_upstream_proxy(proxy_url, target_ip, timeout, port=443):
     # 代理地址由运维配置；隧道目标仍为已校验 IP，不能把原主机名交给代理再次解析。
     parts = urlsplit(proxy_url)
     if parts.scheme != "http" or not parts.hostname or parts.path not in ("", "/") or parts.query or parts.fragment:
@@ -72,7 +74,7 @@ def connect_upstream_proxy(proxy_url, target_ip, timeout):
         headers["Proxy-Authorization"] = "Basic " + base64.b64encode(credentials.encode()).decode("ascii")
     proxy = http.client.HTTPConnection(parts.hostname, parts.port or 80, timeout=timeout)
     try:
-        proxy.set_tunnel(target_ip, 443, headers)
+        proxy.set_tunnel(target_ip, port, headers)
         proxy.connect()
         connection = proxy.sock
         proxy.sock = None
@@ -82,9 +84,9 @@ def connect_upstream_proxy(proxy_url, target_ip, timeout):
         raise
 
 
-def open_public_connection(host, scope, timeout=15):
-    validate_url("https://" + host, scope)
-    addresses = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+def open_public_connection(host, scope, timeout=15, port=443):
+    validate_url("https://" + host + ":" + str(port), scope)
+    addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     if not addresses or any(not is_public_address(entry[4][0]) for entry in addresses):
         raise NetworkPolicyError("拒绝非公网 DNS 地址")
     # 连接刚刚校验过的 sockaddr，不能再次按主机名解析，避免 DNS 重绑定。
@@ -93,7 +95,7 @@ def open_public_connection(host, scope, timeout=15):
         upstream_proxy = os.environ.get("MEDIA_UPSTREAM_PROXY")
         if upstream_proxy:
             try:
-                return connect_upstream_proxy(upstream_proxy, target[0], timeout)
+                return connect_upstream_proxy(upstream_proxy, target[0], timeout, port)
             except OSError as error:
                 last_error = error
                 continue
@@ -109,12 +111,12 @@ def open_public_connection(host, scope, timeout=15):
 
 
 class PublicHTTPSConnection(http.client.HTTPSConnection):
-    def __init__(self, host, scope, timeout=15):
-        super().__init__(host, timeout=timeout)
+    def __init__(self, host, scope, timeout=15, port=443):
+        super().__init__(host, port=port, timeout=timeout)
         self.scope = scope
 
     def connect(self):
-        raw = open_public_connection(self.host, self.scope, self.timeout)
+        raw = open_public_connection(self.host, self.scope, self.timeout, self.port)
         try:
             self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
         except BaseException:
@@ -125,7 +127,7 @@ class PublicHTTPSConnection(http.client.HTTPSConnection):
 @contextlib.contextmanager
 def request_url(url, scope):
     parts = validate_url(url, scope)
-    connection = PublicHTTPSConnection(parts.hostname, scope)
+    connection = PublicHTTPSConnection(parts.hostname, scope, port=parts.port or 443)
     try:
         path = parts.path or "/"
         if parts.query:
@@ -235,7 +237,7 @@ class MediaProxyHandler(http.server.BaseHTTPRequestHandler):
             parts = validate_url("https://" + self.path, self.server.scope)
             if parts.path or parts.query or parts.fragment:
                 raise NetworkPolicyError("非法 CONNECT 目标")
-            with open_public_connection(parts.hostname, self.server.scope) as upstream:
+            with open_public_connection(parts.hostname, self.server.scope, port=parts.port or 443) as upstream:
                 self.send_response(200)
                 self.end_headers()
                 connected = True

@@ -4,7 +4,7 @@ M0 第三批在 `scripts/media_network.py` 统一校验媒体出站，主处理�
 
 ## 访问规则
 
-- 只接受 HTTPS、443 端口，无 userinfo、控制字符、反斜线或尾点主机；入口仍由 `url-utils.ts` 校验视频路径。
+- 只接受 HTTPS 和 443 端口；Bilibili 的 `*.mcdn.bilivideo.cn` 额外允许 8082 端口，仍执行平台白名单及全量公网 DNS 校验。其他域名或平台的 8082 均不允许。拒绝 userinfo、控制字符、反斜线或尾点主机；入口仍由 `url-utils.ts` 校验视频路径。
 - YouTube、Bilibili 与抖音使用各自的平台/CDN 域名后缀白名单，按域名边界匹配，拒绝 `youtube.com.evil.example` 等伪装。确切列表见 `HOSTS`，新增 CDN 必须结合实际失败地址审查，不能直接开放任意域名。
 - 对 DNS 返回的全部 IPv4/IPv6 地址检查公网属性，拒绝混合公网/内网结果、环回、私网、链路本地、云元数据、共享地址、保留地址及 IPv6 过渡网络。直接连接刚刚校验的 sockaddr，不按原主机名进行第二次解析；TLS 仍验证原始域名及证书。
 - 抖音短链接逐跳校验目标域名与路径，最多 5 次重定向，拒绝循环、空 Location 和跨域跳转；合法 `iesdouyin.com/share/video/<id>` 归一为标准视频页，再启动浏览器。HTML/脚本型短链跳转不绕过此规则。
@@ -27,7 +27,7 @@ CONNECT 代理只绑定 `127.0.0.1` 的随机端口，最多 32 个并发连接�
 
 媒体访问默认直连**已验证的公网 IP**，不会自动读取 Windows 系统代理或 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`。下载器本地配置同样不再生效；原先依赖这些配置的环境需要显式迁移。
 
-在本地 `.env.local` 设置 `MEDIA_UPSTREAM_PROXY=http://127.0.0.1:<HTTP或mixed端口>`，由应用传给 Python。该配置属于运维信任边界，不接受请求参数指定代理；可使用固定 HTTP 代理及可选 Basic 认证，不能把真实凭据写进版本库。Python 边界先解析并校验目标，再向此代理 CONNECT **目标公网 IP:443**，目标 TLS 保持原始域名验证。不能在失败时自动回退到任意代理或不受保护的直连。
+在本地 `.env.local` 设置 `MEDIA_UPSTREAM_PROXY=http://127.0.0.1:<HTTP或mixed端口>`，由应用传给 Python。该配置属于运维信任边界，不接受请求参数指定代理；可使用固定 HTTP 代理及可选 Basic 认证，不能把真实凭据写进版本库。Python 边界先解析并校验目标，再向此代理 CONNECT **已验证的目标公网 IP 和允许端口**，目标 TLS 保持原始域名验证。不能在失败时自动回退到任意代理或不受保护的直连。
 
 本地 DNS 必须返回真实公网地址。代理软件的 fake-IP DNS（例如 `198.18.0.0/15`）会被拒绝，需为媒体域名调整解析配置。可信上游代理、主机路由及 TLS 根证书仍由运维负责。
 

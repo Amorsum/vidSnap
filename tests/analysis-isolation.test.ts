@@ -707,3 +707,15 @@ test("B 站分 P 独立缓存、SSE、追问与来源链接", async () => {
   assert.equal((await followup.POST(request({ videoId: second.video.id, analysisId: second.analysisId, question: "总结要点" }, cookie))).status, 200);
   assert.equal((await main.DELETE(request({ videoId: second.video.id, analysisId: second.analysisId }, cookie, "DELETE"))).status, 200);
 });
+
+test("B 站媒体策略拒绝时，SSE 提示网络校验而非错误要求登录", async () => {
+  mockState.fail("network-policy");
+  try {
+    const response = await main.POST(request({ url: "https://www.bilibili.com/video/BV1xx411c7mD?p=1" }));
+    const events = parseEvents(await response.text());
+    const failure = events.find(event => event.type === "error");
+    assert.ok(failure);
+    assert.match(failure.message, /网络校验/);
+    assert.doesNotMatch(failure.message, /登录|cookies/);
+  } finally { mockState.fail(); }
+});

@@ -66,6 +66,58 @@ class MediaNetworkTests(unittest.TestCase):
                 network.resolve_bilibili_url("https://b23.tv/abc")
             self.assertEqual(len(calls), 1)
 
+    def test_bilibili_media_port_is_restricted_and_dns_is_pinned(self):
+        host = "xy112x1x130x31xy.mcdn.bilivideo.cn"
+        network.validate_url(f"https://{host}:8082/media", "bilibili")
+        for url, scope in [(f"https://{host}:8082/media", "youtube"),
+                           ("https://api.bilibili.com:8082/", "bilibili"),
+                           ("https://mcdn.bilivideo.cn:8082/", "bilibili"),
+                           (f"https://{host}:8083/", "bilibili"),
+                           (f"http://{host}:8082/", "bilibili"),
+                           ("https://evil.mcdn.bilivideo.cn.example:8082/", "bilibili")]:
+            with self.subTest(url=url, scope=scope), self.assertRaises(network.NetworkPolicyError):
+                network.validate_url(url, scope)
+        public = (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("8.8.8.8", 8082))
+        with patch.object(socket, "getaddrinfo", return_value=[public]) as lookup, patch.object(socket, "socket") as create:
+            network.open_public_connection(host, "bilibili", port=8082)
+            lookup.assert_called_once_with(host, 8082, type=socket.SOCK_STREAM)
+            create.return_value.connect.assert_called_once_with(("8.8.8.8", 8082))
+        with patch.object(socket, "getaddrinfo", return_value=[dns("10.0.0.1")]), patch.object(socket, "socket") as create:
+            with self.assertRaises(network.NetworkPolicyError):
+                network.open_public_connection(host, "bilibili", port=8082)
+            create.assert_not_called()
+        with patch.dict(os.environ, {"MEDIA_UPSTREAM_PROXY": "http://127.0.0.1:7890"}), patch.object(socket, "getaddrinfo", return_value=[public]), patch.object(network, "connect_upstream_proxy") as connect:
+            network.open_public_connection(host, "bilibili", port=8082)
+            connect.assert_called_once_with("http://127.0.0.1:7890", "8.8.8.8", 15, 8082)
+        with patch.object(network.http.client, "HTTPConnection") as proxy:
+            network.connect_upstream_proxy("http://127.0.0.1:7890", "8.8.8.8", 5, 8082)
+            proxy.return_value.set_tunnel.assert_called_once_with("8.8.8.8", 8082, {})
+
+    def test_bilibili_media_port_is_preserved_in_tls_connection(self):
+        host = "xy112x1x130x31xy.mcdn.bilivideo.cn"
+        connection = network.PublicHTTPSConnection(host, "bilibili", port=8082)
+        raw = Mock()
+        with patch.object(network, "open_public_connection", return_value=raw) as connect, patch.object(connection._context, "wrap_socket") as tls:
+            connection.connect()
+            connect.assert_called_once_with(host, "bilibili", 15, 8082)
+            tls.assert_called_once_with(raw, server_hostname=host)
+
+    def test_bilibili_proxy_connect_preserves_media_port(self):
+        host = "xy112x1x130x31xy.mcdn.bilivideo.cn"
+        peer, upstream = socket.socketpair()
+        with contextlib.closing(peer), contextlib.closing(upstream), network.media_proxy("bilibili") as proxy:
+            port = int(proxy.rsplit(":", 1)[1])
+            with patch.object(network, "open_public_connection", return_value=upstream) as connect:
+                with socket.create_connection(("127.0.0.1", port), timeout=5) as client:
+                    client.sendall(f"CONNECT {host}:8082 HTTP/1.1\r\nHost: {host}:8082\r\n\r\n".encode())
+                    response = b""
+                    while b"\r\n\r\n" not in response:
+                        response += client.recv(4096)
+                    self.assertIn(b"200", response)
+                    connect.assert_called_once_with(host, "bilibili", port=8082)
+                    client.sendall(b"media bytes")
+                    self.assertEqual(peer.recv(100), b"media bytes")
+
     def test_01_host_boundaries(self):
         for url in ["https://www.youtube.com/watch?v=id", "https://r1.googlevideo.com/a?signature=x"]:
             network.validate_url(url, "youtube")
@@ -235,7 +287,7 @@ class MediaNetworkTests(unittest.TestCase):
     def test_18_upstream_receives_only_validated_ip(self):
         with patch.dict(os.environ, {"MEDIA_UPSTREAM_PROXY": "http://127.0.0.1:7890"}), patch.object(socket, "getaddrinfo", return_value=[dns("8.8.8.8")]), patch.object(network, "connect_upstream_proxy") as connect:
             network.open_public_connection("www.youtube.com", "youtube")
-            connect.assert_called_once_with("http://127.0.0.1:7890", "8.8.8.8", 15)
+            connect.assert_called_once_with("http://127.0.0.1:7890", "8.8.8.8", 15, 443)
         with patch.dict(os.environ, {"MEDIA_UPSTREAM_PROXY": "http://127.0.0.1:7890"}), patch.object(socket, "getaddrinfo", return_value=[dns("127.0.0.1")]), patch.object(network, "connect_upstream_proxy") as connect:
             with self.assertRaises(network.NetworkPolicyError):
                 network.open_public_connection("www.youtube.com", "youtube")

@@ -54,6 +54,9 @@ function getUserFacingProcessError(error: unknown, platform: Platform): string {
 
   // execFile.message 包含命令参数；错误分类只读 stderr，避免 --cookies 误判所有失败为登录问题。
   const message = "stderr" in error && typeof error.stderr === "string" && error.stderr ? error.stderr : error.message;
+  if (/Media network policy rejected target/i.test(message)) {
+    return "视频下载地址未通过服务器网络校验，请稍后重试或联系管理员检查媒体网络配置。";
+  }
   if (platform === "bilibili" && /412|403|352|login|cookies|premium|付费|会员/i.test(message)) {
     return "Bilibili 暂时限制访问或该视频需要登录权限，请稍后重试，或由管理员更新服务器 cookies.txt。";
   }
