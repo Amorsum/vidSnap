@@ -1,5 +1,5 @@
 /**
- * 平台处理器：把「下载/提取」逻辑与主流程解耦，方便扩展新平台（B站 等）
+ * 平台处理器：把「下载/提取」逻辑与主流程解耦，方便扩展新平台
  * 每个平台实现统一的 download() 接口，主流程无需关心平台差异。
  */
 import { detectPlatform, UNSUPPORTED_PLATFORM_MESSAGE } from "./url-utils";
@@ -22,9 +22,9 @@ export interface PlatformProcessor {
   useTinyForShortVideos?: boolean;
 }
 
-// ─── YouTube：字幕优先，无字幕则下载音频 ───
+// ─── YouTube / Bilibili：字幕优先，无字幕则下载音频 ───
 
-const youtubeProcessor: PlatformProcessor = {
+const ytDlpProcessor: PlatformProcessor = {
   getInfo: (url) => extractVideoInfo(url),
   download: async (url, info, directory, assertActive) => {
     // 字幕优先：命中字幕则跳过下载音频（省 10-60s）
@@ -72,7 +72,8 @@ const douyinProcessor: PlatformProcessor = {
 
 // 按平台键控注册：新增平台时在 detectPlatform 与这里各加一行
 const processors: Record<Platform, PlatformProcessor> = {
-  youtube: youtubeProcessor,
+  youtube: ytDlpProcessor,
+  bilibili: ytDlpProcessor,
   douyin: douyinProcessor,
 };
 

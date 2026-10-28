@@ -67,14 +67,14 @@ export function installMockUpstream() {
         await fs.writeFile(output, content);
         return { stdout: "", stderr: "" };
       }
-      if (command === "python" && args[0]?.endsWith("media_network.py") && args[1] === "yt-dlp") {
+      if (command === "python" && args[0]?.endsWith("media_network.py") && ["yt-dlp", "yt-dlp-bilibili"].includes(args[1])) {
         command = "yt-dlp";
         args = args.slice(3);
       }
       if (command === "yt-dlp") {
         if (args.includes("--version")) return { stdout: "2026.01.01", stderr: "" };
         const input = new URL(args.at(-1));
-        const videoId = input.searchParams.get("v");
+        const videoId = input.hostname.endsWith("bilibili.com") ? input.pathname.split("/").at(-1) : input.searchParams.get("v");
         if (args.includes("--dump-json")) {
           counts.metadata++;
           await checkpoint("metadata");

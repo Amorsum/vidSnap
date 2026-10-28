@@ -11,6 +11,6 @@ credentials-file: C:/Users/<你的用户名>/.cloudflared/<TUNNEL_ID>.json
 
 ingress:
   - hostname: vidsnap.amorsum.top
-    service: http://localhost:3000
+    service: http://127.0.0.1:3100
   # 其他域名一律 404（避免误路由）
   - service: http_status:404

@@ -1,8 +1,8 @@
 # VidSnap — AI 视频理解助手
 
-> **一句话**：丢给它一个 YouTube / 抖音链接，AI 替你看完，然后你可以问任何问题。
+> **一句话**：丢给它一个 YouTube / Bilibili / 抖音链接，AI 替你看完，然后你可以问任何问题。
 
-独立从 0 到 1 构建的 AI 视频理解应用，打通「链接解析 → 音视频下载 → 三级降级转写 → 关键帧视觉理解 → LLM 结构化总结 → Agentic RAG 追问」全链路，支持 YouTube / 抖音双平台。
+独立从 0 到 1 构建的 AI 视频理解应用，打通「链接解析 → 音视频下载 → 三级降级转写 → 关键帧视觉理解 → LLM 结构化总结 → Agentic RAG 追问」全链路，支持 YouTube / Bilibili / 抖音三平台。
 
 开发分支：按 2026-10-26 的最新约定，后续开发、提交和推送统一使用 `main`；此前 `demo` 的开发历史已快进整合到 `main`。
 
@@ -11,6 +11,8 @@
 > 既有真实短样本的文字路由、字幕与音频证据见 [流水线计时](docs/PIPELINE_TIMING.md) 和 [字幕下载](docs/YOUTUBE_DOWNLOADS.md)，不能外推总体延迟或真实视觉覆盖率。此次 HTTP/浏览器验收使用明确的媒体与模型替身；真实抖音登录、无字幕 ASR、完整视觉及部署出站验收仍待补充，M0/M1 尚未整体验收。当前依赖个人电脑在线，云端时间戳为估算，主总结的 Claude 流式切换尚不完整。
 
 ## 演示
+
+当前无门禁三平台入口（2026-10-28）：[桌面截图](docs/screenshots/bilibili-home-desktop.png) · [手机截图](docs/screenshots/bilibili-home-mobile.png)。
 
 以下为早期演示截图；新工作台的交互与验证范围见 [学习闭环说明](docs/LEARNING_WORKSPACE.md)。
 
@@ -22,13 +24,11 @@
 |------|------|------|
 | ![首页](docs/screenshots/home.png) | ![视频理解工作台](docs/screenshots/result.png) | ![移动端](docs/screenshots/mobile.png) |
 
-访问码门禁（公开部署的安全设计）：
-
-![访问码门禁](docs/screenshots/home-gate.png)
-
-> 在线 Demo：<https://vidsnap.amorsum.top>（需访问码，本地运行 + Cloudflare 隧道，电脑在线时可用）
+> 在线 Demo：<https://vidsnap.amorsum.top>（本地运行 + Cloudflare 隧道，电脑在线时可用）
 
 ## 功能特性
+
+2026-10-28 新增 Bilibili 视频支持并移除访问码。支持 BV/av、分享短链、指定分 P 的总结、原文、追问和笔记；一个链接只分析一个分 P。字幕不可用时走现有云端／本地转写，番剧、直播、收藏夹与整合集批量分析暂不支持。公开视频可匿名下载，需要平台登录的视频或字幕仍依赖服务器 `cookies.txt` 中的有效 B 站登录态。详见 [本轮验证](docs/test-reports/TEST-20261028-BILIBILI.md)。
 
 分析中刷新页面后会尝试找回已有任务；连接中断时提供“恢复分析连接”。恢复不会启动新的模型处理，服务器重启后需重新分析，详见 [恢复范围](docs/LEARNING_WORKSPACE.md#刷新与连接恢复)。本批 254 项自动测试、31 组隔离浏览器检查及静态/构建检查通过，见 [验证报告](docs/test-reports/TEST-20261026-RECOVERY.md)。学习辅助上一批已由 `8c3ce28` 推送 `demo`。
 
@@ -43,20 +43,20 @@
 | 关键帧视觉理解（多模态） | FFmpeg 均匀采样抽帧 → Qwen3-VL 视觉模型逐帧描述 → 与字幕按时间戳融合进总结，关键帧画廊可点击跳转分段 |
 | 追问对话（Agentic RAG） | 模型自主决策检索策略（语义/关键词/时间范围三工具 tool-calling），回答可溯源到秒级时间戳，前端可见工具调用轨迹 |
 | 跨语言理解 | 英/日/韩等外语视频自动输出中文总结 |
-| 双平台 | YouTube（yt-dlp + 字幕优先）+ 抖音（Playwright 解析 + ffmpeg 下载） |
+| 三平台 | YouTube / Bilibili（yt-dlp + 字幕优先）+ 抖音（Playwright 解析 + ffmpeg 下载） |
 
 ## 系统架构
 
 ```mermaid
 flowchart TD
-    A[用户粘贴 YouTube / 抖音链接] --> B[URL 检测与提取<br/>url-utils.ts]
-    B --> C{访问码门禁 + 限流<br/>security.ts}
-    C -->|拒绝| C1[401 / 429]
+    A[用户粘贴 YouTube / Bilibili / 抖音链接] --> B[URL 检测与提取<br/>url-utils.ts]
+    B --> C{来源校验 + 限流<br/>security.ts}
+    C -->|拒绝| C1[403 / 429]
     C -->|通过| D[平台处理器<br/>platforms.ts]
     D --> E{结果缓存命中?<br/>process-cache.ts}
     E -->|命中| P[直接返回<br/>实测 11s → 3s]
     E -->|未命中| F{平台分支}
-    F -->|YouTube| G[yt-dlp 提取信息<br/>字幕优先下载]
+    F -->|YouTube / Bilibili| G[yt-dlp 提取信息<br/>字幕优先下载]
     F -->|抖音| H[Playwright 解析直链<br/>+ ffmpeg 下载音频]
     G --> I{已有内置字幕?}
     I -->|是| K
@@ -108,7 +108,7 @@ flowchart TD
 
 ## 安全
 
-- **访问码门禁**：`ACCESS_CODE` 环境变量 + 前端门禁页（`/api/verify` 校验，暴力猜测有失败计数限流）
+- **直接使用**：已移除访问码页面和校验，旧 `ACCESS_CODE` 配置不再生效；账号登录、用户额度与跨设备同步后续补齐
 - **每 IP 滑动窗口限流**：`/api/process` 10 次/10 分钟，`/api/followup` 30 次/10 分钟，防刷爆 API Key
 - **代理 IP 读取**：优先读取 `cf-connecting-ip`；只有源站入口受控且代理覆写头时才可信
 - **会话隔离**：HttpOnly 匿名会话绑定分析 ID；结果、字幕、对话、帧图和删除均校验归属，写接口增加来源与 JSON 内容类型校验
@@ -126,7 +126,7 @@ flowchart TD
 ## 技术栈
 
 - **前端**：Next.js 16 + React 19 + TypeScript + Tailwind CSS v4
-- **视频处理**：yt-dlp（YouTube）、Playwright + ffmpeg（抖音，绕过 X-Bogus 签名）
+- **视频处理**：yt-dlp（YouTube / Bilibili）、Playwright + ffmpeg（抖音，绕过 X-Bogus 签名）
 - **ASR 转写**：硅基流动 SenseVoice API（云端）/ faster-whisper（本地降级，CUDA 加速）
 - **视觉理解**：FFmpeg 关键帧抽取 + 硅基流动 Qwen3-VL-32B（OpenAI 兼容接口，批量多图描述）
 - **AI 引擎**：DeepSeek API（默认）/ Claude API（可切换），SSE 流式输出，tool-calling 双协议归一
@@ -142,7 +142,6 @@ npm install
 # 配置环境变量（复制 .env.example 为 .env.local 并填入 Key）
 # DEEPSEEK_API_KEY=sk-xxx       # 必填，LLM 总结
 # SENSEVOICE_API_KEY=sk-xxx     # 可选，云端转写 + embedding + 关键帧视觉理解（一 key 三用）
-# ACCESS_CODE=your-code         # 可选，访问码门禁
 # VISION_ENABLED=0              # 可选，显式关闭视觉理解（默认有 key 即启用）
 
 # 本地启动
@@ -157,7 +156,7 @@ npm run dev
 
 ## 开发与验证
 
-使用 `demo` 作为日常开发分支，`main` 作为主分支。功能验证通过并经确认后再发布到主分支；提交和推送前先概述改动并获得确认，不自动同步两个分支。现有 `master` 保留历史 B 站实现，供后续查阅，本轮不合入、不删除，也不为常规优化额外创建分支。
+日常开发、提交和推送统一使用 `main`；按用户明确授权提交发布。`demo` 和 `master` 保留历史，B 站接入已参考 `master` 旧实现并适配当前三平台架构，未整体合入旧版。
 
 ```bash
 npm run lint
@@ -175,7 +174,7 @@ npm run build
 
 接口调用需要保存服务端签发的会话 Cookie；追问与删除应回传 `analysisId` 和 `videoId`。内容默认保留 1 小时，帧默认 2 小时，缓存命中不续期；详见 [匿名会话与分析资源](docs/API_SESSIONS.md)。
 
-视频入口接受 YouTube 的 watch、youtu.be、shorts、embed、v 视频链接，以及抖音 `/video/<数字 ID>` 和 `v.douyin.com` 短链接；拒绝用户主页、异常端口、userinfo 和伪造域名。服务端移除分享参数后再处理。主处理及两个历史处理接口共用每 IP 10 次/10 分钟额度；追问与删除各为 30 次/10 分钟，429 返回 `Retry-After`。代理 IP 头仅在受控源站入口和代理覆写条件下可信。
+视频入口接受 YouTube 的 watch、youtu.be、shorts、embed、v 视频链接，Bilibili 的 `/video/BV…`、`/video/av…`、`b23.tv` 短链（保留 `p` 分 P），以及抖音 `/video/<数字 ID>` 和 `v.douyin.com` 短链接；拒绝用户主页、异常端口、userinfo 和伪造域名。服务端移除分享参数后再处理。主处理及两个历史处理接口共用每 IP 10 次/10 分钟额度；追问与删除各为 30 次/10 分钟，429 返回 `Retry-After`。代理 IP 头仅在受控源站入口和代理覆写条件下可信。
 
 两个历史接口 `/api/process/summarize`、`/api/process/transcribe` 保留现有 JSON 响应；仓库内未发现调用方，先做兼容保护，后续再明确停用策略。主接口仍使用原 SSE 协议。
 
@@ -186,6 +185,8 @@ npm run build
 1. 从 [Cloudflare 官方下载页](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) 下载对应平台的 `cloudflared`，放至项目根目录
 2. 复制 `cloudflared-config.example.yml` 为 `cloudflared-config.yml`，按注释填入隧道凭据
 3. 运行 `start.bat` 一键启动（服务 + 隧道）；如需开机自启，配置 `autostart.bat`（Windows 启动文件夹 + VBS 静默运行）
+
+部署脚本统一使用 `http://127.0.0.1:3100`，避免与其他程序的 3000 端口冲突；已有 `cloudflared-config.yml` 也须将 VidSnap 的 `service` 改为此地址。`npm run dev` 的默认开发端口仍为 3000。两个批处理共用 `scripts/start-services.ps1`，仅在首页返回成功且标题为 VidSnap 时复用服务；端口被其他程序占用或启动失败时会报错，不会停止占用者或继续启动隧道。重复运行复用当前项目的隧道进程，启动日志保存在 `tmp/deployment/`。
 
 ## 目录结构
 
@@ -212,7 +213,7 @@ npm run build
 │   │       ├── process/         # 视频处理管线（SSE 流式 + 视觉理解阶段）
 │   │       ├── followup/        # Agentic 追问（tool-calling）
 │   │       ├── frames/          # 关键帧图片服务（HMAC 签名鉴权）
-│   │       └── verify/          # 访问码校验
+│   │       └── session/         # 匿名会话签发
 │   ├── components/              # UI 组件（含 KeyframeGallery 关键帧画廊）
 │   └── lib/
 │       ├── llm.ts               # LLM Provider 抽象 + tool-calling 循环
@@ -221,7 +222,7 @@ npm run build
 │       ├── rag.ts               # 向量/关键词检索
 │       ├── embeddings.ts        # bge-m3 embedding 封装
 │       ├── observability.ts     # token 用量 + 成本核算（含视觉计价）
-│       ├── security.ts          # 访问码 + 滑动窗口限流
+│       ├── security.ts          # 来源校验 + 滑动窗口限流
 │       ├── request-validation.ts# JSON、视频 ID 和问题的运行时校验
 │       ├── media-workspace.ts   # 历史接口独立媒体目录与 finally 清理
 │       ├── session.ts           # 服务端匿名会话 Cookie

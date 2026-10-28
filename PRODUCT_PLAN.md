@@ -65,7 +65,7 @@
 - **抖音/Douyin**（✅ 已支持）
 
 ### Phase 2 新增
-- **B站/Bilibili**（计划中）
+- **B站/Bilibili**（2026-10-28 已接入普通视频及指定分 P）
 
 ### 后续扩展
 - TikTok
@@ -286,28 +286,15 @@ Step 4: AI 理解与生成 (10-60秒)
 
 #### 2.2 Bilibili 视频链接支持
 
-**目标：** 新增 B 站视频链接解析，覆盖中文视频内容场景。
+2026-10-28 已接入当前三平台处理器：BV/av 视频页、`b23.tv` 分享短链和 `p` 指定分 P。每次处理一个分 P，使用 `BV…_pN` 隔离缓存和学习笔记；原视频链接保留分 P 与时间位置。
 
-**技术要点：**
+- [x] URL 白名单、短链逐跳校验与平台 CDN 出站范围
+- [x] yt-dlp 信息和字幕提取；人工/自动 SRT 优先，无字幕降级语音转写
+- [x] 音频与低清视频下载，复用关键帧、总结、原文、追问及本地笔记
+- [x] 桌面和移动端直接输入三平台链接
+- [x] 真实短视频媒体冒烟、隔离模型/浏览器验证；详见 [报告](docs/test-reports/TEST-20261028-BILIBILI.md)
 
-| 事项 | 说明 |
-|------|------|
-| 解析方式 | 使用 yt-dlp 的 Bilibili 提取器 |
-| 必要条件 | Netscape 格式 cookies（`BILIBILI_COOKIES` 环境变量），包含 `SESSDATA` 和 `buvid3` |
-| User-Agent | 需伪装 Chrome 浏览器 UA |
-| 海外访问 | B 站可能屏蔽海外 IP，需测试（Vercel 服务器在海外） |
-| 降级方案 | 如 yt-dlp 被 412 拦截，可尝试 Playwright 方案 |
-
-**开发任务：**
-- [ ] `src/lib/url-utils.ts`：添加 Bilibili URL 正则匹配
-- [ ] `src/lib/video-processor.ts`：B 站链接走 yt-dlp 下载 + cookie 注入
-- [ ] `src/app/api/process/route.ts`：添加 B 站分支处理逻辑
-- [ ] 测试：国内 IP 直连、海外 IP + cookie 两种场景
-- [ ] 前端 UI：更新平台提示文字
-
-**里程碑：** 支持 YouTube + 抖音 + Bilibili 三大平台。
-
----
+番剧、直播、付费权限获取、整合集批处理不在本次范围。平台要求登录的视频/字幕仍需有效 B 站 Cookie；当前网站访问码已移除，匿名会话和限流保留，账号登录与额度管理留到后续。
 
 #### 2.3 会员系统
 
@@ -418,7 +405,7 @@ CREATE TABLE subscriptions (
 - 引用溯源（精确到秒）
 - 多轮追问
 - 关键帧画廊
-- 更多平台支持（TikTok、B站、Vimeo）
+- 更多平台支持（TikTok、Vimeo）
 
 ### Phase 2：深度理解（3-6个月）
 - 跨内容关联

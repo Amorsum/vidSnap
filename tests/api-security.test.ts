@@ -4,13 +4,13 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { NextRequest } from "next/server";
 
-// tsx 不加载 .env.local；测试专用访问码和独立 IP 桶不消耗服务进程额度。
+// 模拟仍残留旧访问码配置；独立 IP 桶不消耗服务进程额度。
 const testCode = "security-regression-only";
 let main: typeof import("../src/app/api/process/route");
 let summarize: typeof import("../src/app/api/process/summarize/route");
 let transcribe: typeof import("../src/app/api/process/transcribe/route");
 let followup: typeof import("../src/app/api/followup/route");
-let verify: typeof import("../src/app/api/verify/route");
+let verify: typeof import("../src/app/api/session/route");
 let sequence = 0;
 
 before(async () => {
@@ -19,7 +19,7 @@ before(async () => {
   summarize = await import("../src/app/api/process/summarize/route");
   transcribe = await import("../src/app/api/process/transcribe/route");
   followup = await import("../src/app/api/followup/route");
-  verify = await import("../src/app/api/verify/route");
+  verify = await import("../src/app/api/session/route");
 });
 
 function request(body: unknown, options: { code?: string; ip?: string; raw?: boolean; method?: string } = {}) {
@@ -35,12 +35,11 @@ function request(body: unknown, options: { code?: string; ip?: string; raw?: boo
 }
 
 for (const name of ["main", "summarize", "transcribe", "followup", "delete"] as const) {
-  test(`${name}：鉴权先于 JSON 解析和处理`, async () => {
+  test(`${name}：移除门禁后忽略旧访问码配置，继续校验 JSON`, async () => {
     const handler = { main: main.POST, summarize: summarize.POST, transcribe: transcribe.POST, followup: followup.POST, delete: main.DELETE }[name];
     for (const code of ["", "wrong-code"]) {
       const response = await handler(request("{", { code, raw: true, method: name === "delete" ? "DELETE" : "POST" }));
-      assert.equal(response.status, 401);
-      assert.match((await response.json()).error, /访问码/);
+      assert.equal(response.status, 400);
     }
   });
 }
@@ -71,12 +70,9 @@ test("历史总结接口只接受枚举模式", async () => {
   }
 });
 
-test("三个处理入口共享 10 次配额，401 不消耗配额，429 包含 Retry-After", async () => {
+test("三个处理入口共享 10 次配额，429 包含 Retry-After", async () => {
   const ip = "test-security-shared-process";
   const handlers = [main.POST, summarize.POST, transcribe.POST];
-  for (const handler of handlers) {
-    assert.equal((await handler(request({}, { code: "wrong", ip }))).status, 401);
-  }
   for (let i = 0; i < 10; i++) {
     assert.equal((await handlers[i % handlers.length](request({}, { ip }))).status, 400);
   }
@@ -115,25 +111,22 @@ test("追问拒绝非法问题和 ID；合法但不存在的 ID 返回 404", asy
   assert.equal(response.status, 404);
 });
 
-test("verify 拒绝错型访问码，正确访问码不占失败桶", async () => {
-  for (const code of [null, {}, [], 123, "a".repeat(4097)]) {
-    assert.equal((await verify.POST(request({ code }))).status, 400);
+test("匿名会话不需要访问码，签发 Cookie 并限流", async () => {
+  const ip = "test-security-session";
+  for (let i = 0; i < 30; i++) {
+    const response = await verify.POST(request({}, { ip, code: "" }));
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("set-cookie")!, /HttpOnly/);
   }
-  const ip = "test-security-verify";
-  for (let i = 0; i < 10; i++) {
-    assert.equal((await verify.POST(request({ code: "wrong" }, { ip }))).status, 401);
-  }
-  const denied = await verify.POST(request({ code: "wrong" }, { ip }));
+  const denied = await verify.POST(request({}, { ip }));
   assert.equal(denied.status, 429);
   assert.ok(Number(denied.headers.get("Retry-After")) > 0);
-  assert.equal((await verify.POST(request({ code: testCode }, { ip }))).status, 200);
 });
 
 test("未配置访问码时仍兼容放行，限流继续生效", async () => {
   const script = `
     const assert = require('node:assert/strict');
-    const { verifyAccessCode, guardApiRequest } = require('./src/lib/security.ts');
-    assert.equal(verifyAccessCode(null), true);
+    const { guardApiRequest } = require('./src/lib/security.ts');
     const request = new Request('http://localhost', { headers: { 'content-type': 'application/json', 'cf-connecting-ip': 'test-no-gate' } });
     for (let i = 0; i < 10; i++) assert.equal(guardApiRequest(request, 'process'), null);
     assert.equal(guardApiRequest(request, 'process').status, 429);

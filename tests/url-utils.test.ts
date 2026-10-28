@@ -78,3 +78,20 @@ test("分享文本与纯 URL 使用同一提取逻辑", () => {
   assert.equal(extractUrl(` ${canonical} `), canonical);
   assert.equal(extractUrl("没有链接"), "没有链接");
 });
+
+for (const [input, id, page] of [
+  ["https://www.bilibili.com/video/BV1xx411c7mD/?spm_id_from=share", "BV1xx411c7mD", "1"],
+  ["https://m.bilibili.com/video/av170001?p=2&t=90", "av170001", "2"],
+  ["http://bilibili.com/video/BV1xx411c7mD?p=3", "BV1xx411c7mD", "3"],
+]) {
+  test(`B 站规范化保留分 P：${input}`, () => {
+    assert.deepEqual(parseVideoUrl(input), { platform: "bilibili", videoId: `${id}_p${page}`, url: `https://www.bilibili.com/video/${id}?p=${page}` });
+  });
+}
+test("B 站分享短链和文案", () => {
+  assert.equal(extractUrl("来学习【教程】 https://b23.tv/AbCd123，复制打开"), "https://b23.tv/AbCd123");
+  assert.deepEqual(parseVideoUrl("https://b23.tv/AbCd123?share=1"), { platform: "bilibili", url: "https://b23.tv/AbCd123" });
+});
+for (const url of ["https://bilibili.com.evil.test/video/BV1xx411c7mD", "https://space.bilibili.com/123", "https://www.bilibili.com/bangumi/play/ss123", "https://b23.tv/", "https://b23.tv/abc/extra", "https://user@b23.tv/abc", "https://b23.tv:8080/abc", ...["0", "-1", "1.5", "", "100000", "1&p=2"].map(p => `https://www.bilibili.com/video/BV1xx411c7mD?p=${p}`)]) {
+  test(`拒绝非法 B 站入口：${url}`, () => assert.equal(parseVideoUrl(url), null));
+}

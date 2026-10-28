@@ -82,7 +82,7 @@ async function main(): Promise<void> {
   const summaryKeyPresent = !!(provider === "claude" ? process.env.CLAUDE_API_KEY : process.env.DEEPSEEK_API_KEY);
   report.checks.push({ id: "configuration", status: summaryKeyPresent ? "pass" : "warn", message: "只报告当前 Provider 的配置是否存在，不发出模型请求", details: {
     summary_provider: provider, summary_key_present: summaryKeyPresent, cloud_asr_key_present: !!process.env.SENSEVOICE_API_KEY,
-    access_gate_configured: !!process.env.ACCESS_CODE, proxy_override: proxyIndex >= 0,
+    proxy_override: proxyIndex >= 0,
   } });
   if (args.includes("--whisper-smoke")) await localSpeechSmoke(report);
   if (args.includes("--json")) console.log(JSON.stringify(report));

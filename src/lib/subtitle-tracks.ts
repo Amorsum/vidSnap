@@ -1,5 +1,5 @@
-export interface SubtitleTrack { language: string; kind: "manual" | "automatic"; format: "vtt" | "srt"; url: string }
-export interface SubtitleSelection { language: string; kind: "manual" | "automatic"; delivery: "direct" | "yt-dlp" }
+export interface SubtitleTrack { language: string; kind: "manual" | "automatic"; format: "vtt" | "srt"; url: string; data?: string }
+export interface SubtitleSelection { language: string; kind: "manual" | "automatic"; delivery: "direct" | "yt-dlp" | "inline" }
 const PREFERRED = ["zh-Hans", "zh-CN", "zh-TW", "zh", "en", "ja", "ko", "de", "fr", "es", "pt", "ru", "ar"];
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 
@@ -15,6 +15,11 @@ export function selectSubtitleTracks(data: unknown): SubtitleTrack[] {
     for (const [language, formats] of Object.entries(inventory)) {
       if (!/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*$/.test(language) || language.length > 64 || !Array.isArray(formats)) continue;
       for (const format of formats) {
+        // B 站提取器将 JSON 字幕转换为内联 SRT；弹幕 XML 不属于转写证据。
+        if (record(format) && format.ext === "srt" && typeof format.data === "string" && format.data.length <= 2 * 1024 * 1024) {
+          candidates.push({ language, kind: language.startsWith("ai-") ? "automatic" : kind, format: "srt", url: "", data: format.data });
+          continue;
+        }
         if (!record(format) || !["vtt", "srt"].includes(String(format.ext)) || typeof format.url !== "string" || format.url.length > 4096
             || /[\s\\\u0000-\u001f\u007f]/.test(format.url)) continue;
         try {
@@ -26,15 +31,18 @@ export function selectSubtitleTracks(data: unknown): SubtitleTrack[] {
       }
     }
     const rank = (track: SubtitleTrack) => {
-      const language = track.language.toLowerCase().replace(/-orig$/, "");
+      const language = track.language.toLowerCase().replace(/-orig$/, "").replace(/^ai-/, "");
       if (original && (language === original || language === original.split("-")[0])) return -2;
       if (kind === "automatic" && track.language.endsWith("-orig")) return -1;
       const preferred = PREFERRED.findIndex((item) => item.toLowerCase() === language);
       return preferred < 0 ? PREFERRED.length : preferred;
     };
-    candidates.sort((left, right) => rank(left) - rank(right) || left.language.localeCompare(right.language)
+    candidates.sort((left, right) => Number(left.kind === "automatic") - Number(right.kind === "automatic") || rank(left) - rank(right) || left.language.localeCompare(right.language)
       || Number(left.format !== "vtt") - Number(right.format !== "vtt"));
-    if (candidates[0]) selected.push(candidates[0]);
+    for (const targetKind of ["manual", "automatic"] as const) {
+      const candidate = candidates.find(track => track.kind === targetKind);
+      if (candidate && !selected.some(track => track.kind === targetKind)) selected.push(candidate);
+    }
   }
   return selected;
 }

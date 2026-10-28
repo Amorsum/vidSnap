@@ -18,7 +18,7 @@ export interface VisionMetadata {
 
 export interface AnalysisResult {
   analysisId: string;
-  platform: "youtube" | "douyin";
+  platform: "youtube" | "douyin" | "bilibili";
   canonicalUrl: string;
   expiresAt: number;
   framesExpireAt?: number;

@@ -1,10 +1,7 @@
 /**
- * 鉴权与限流（内存实现，适用于单实例部署）
- * - 访问码：ACCESS_CODE 环境变量，未配置时不启用门禁
+ * 来源校验与限流（内存实现，适用于单实例部署）
  * - 限流：每 IP 滑动窗口计数，窗口过期数据惰性清理
  */
-
-const ACCESS_CODE = process.env.ACCESS_CODE;
 
 /** 读取部署代理传递的 IP；仅在源站入口受控且代理覆写这些头时可信。 */
 export function getClientIp(request: Request): string {
@@ -15,20 +12,8 @@ export function getClientIp(request: Request): string {
   return "unknown";
 }
 
-/** 校验访问码：未配置 ACCESS_CODE 时不启用门禁（向后兼容） */
-export function verifyAccessCode(code: string | null): boolean {
-  if (!ACCESS_CODE) return true;
-  return code === ACCESS_CODE;
-}
-
 /** 所有媒体处理入口共用 process 桶，避免轮换历史接口绕过额度。 */
-export function guardApiRequest(request: Request, bucket: "process" | "followup" | "delete" | "analysis"): Response | null {
-  if (!verifyAccessCode(request.headers.get("x-access-code"))) {
-    return Response.json(
-      { success: false, error: "需要访问码，请向站长获取" },
-      { status: 401 }
-    );
-  }
+export function guardApiRequest(request: Request, bucket: "process" | "followup" | "delete" | "analysis" | "session"): Response | null {
   const originError = request.method === "GET" ? null : checkMutationOrigin(request);
   if (originError) return originError;
   const limit = checkRateLimit(`${bucket}:${getClientIp(request)}`, bucket === "process" ? 10 : 30, 10 * 60 * 1000);

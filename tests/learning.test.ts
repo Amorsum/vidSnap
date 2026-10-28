@@ -136,3 +136,13 @@ test("限流 Retry-After 支持秒数和 HTTP 日期，不自动重发请求", (
   assert.equal(retryDeadline("Thu, 01 Jan 1970 00:01:00 GMT", 1000), 60000);
   assert.equal(retryDeadline(null, 1000), 61000);
 });
+
+test("B 站笔记持久化和导出保留分 P，错误 ID 不导入", () => {
+  const note: StudyNote = { ...durableNote(fixture), analysis: { ...fixture.analysis, platform: "bilibili", video: { ...fixture.analysis.video, id: "BV1xx411c7mD_p2" }, canonicalUrl: "https://www.bilibili.com/video/BV1xx411c7mD?p=2" } };
+  assert.ok(isStudyNote(note));
+  const saved = durableNote(note);
+  assert.ok(isStudyNote(saved));
+  assert.match(saved.analysis.canonicalUrl, /p=2/);
+  assert.match(exportMarkdown(saved, true), /bilibili\.com\/video\/BV1xx411c7mD\?p=2/);
+  assert.equal(isAnalysisResult({ ...note.analysis, video: { ...note.analysis.video, id: "invalid" } }), false);
+});

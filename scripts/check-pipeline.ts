@@ -11,7 +11,7 @@ async function main() {
   }
   if (!base) throw new Error("isolated_server_required");
   loadEnvConfig(process.cwd(), false, { info() {}, error() {} });
-  const report = await checkPipeline(base, process.env.ACCESS_CODE ?? "");
+  const report = await checkPipeline(base);
   console.log(args.includes("--json") ? JSON.stringify(report) : JSON.stringify(report, null, 2));
   process.exitCode = report.text_api_pipeline_verified ? 0 : 1;
 }

@@ -296,7 +296,7 @@ async function hmacHex(secret: string, message: string): Promise<string> {
 
 /** 帧图访问 token：`<expMs>.<hmac(videoId:idx:expMs)>`，2 小时过期 */
 export async function signFrameToken(videoId: string, idx: number, expiresAt = Date.now() + FRAME_TOKEN_TTL_MS): Promise<string> {
-  const secret = process.env.ACCESS_CODE || process.env.SENSEVOICE_API_KEY || fallbackSigningSecret;
+  const secret = fallbackSigningSecret;
   const expMs = Math.min(expiresAt, Date.now() + FRAME_TOKEN_TTL_MS);
   const sig = await hmacHex(secret, `${videoId}:${idx}:${expMs}`);
   return `${expMs}.${sig}`;
@@ -308,7 +308,7 @@ export async function verifyFrameToken(token: string, videoId: string, idx: numb
   if (dotIdx <= 0) return false;
   const expMs = Number(token.slice(0, dotIdx));
   if (!Number.isFinite(expMs) || expMs < Date.now()) return false;
-  const secret = process.env.ACCESS_CODE || process.env.SENSEVOICE_API_KEY || fallbackSigningSecret;
+  const secret = fallbackSigningSecret;
   const expected = await hmacHex(secret, `${videoId}:${idx}:${expMs}`);
   return expected === token.slice(dotIdx + 1);
 }

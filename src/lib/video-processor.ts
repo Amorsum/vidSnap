@@ -4,7 +4,7 @@ import fs from "fs/promises";
 import { existsSync } from "fs";
 import { detectPlatform, normalizeVideoUrl } from "./url-utils";
 import { withMediaWorkspace } from "./media-workspace";
-import { runYtDlp, downloadPublicSubtitle } from "./media-network";
+import { runYtDlp, downloadPublicSubtitle, resolveBilibiliUrl } from "./media-network";
 import { parseBuiltinSubtitle } from "./transcriber";
 import { isValidVideoId } from "./request-validation";
 import { selectSubtitleTracks, SubtitleTrackHandoff, type SubtitleSelection } from "./subtitle-tracks";
@@ -19,6 +19,7 @@ const BROWSER_UA =
 
 export interface VideoInfo {
   id: string;
+  canonicalUrl?: string;
   title: string;
   duration: number;
   thumbnail: string;
@@ -42,16 +43,16 @@ function ensureTempDir(): Promise<string> {
 }
 
 /**
- * 获取 cookie 参数：优先使用 cookies.txt 文件，兜底尝试 Firefox 浏览器
+ * 优先使用 cookies.txt；YouTube 兜底尝试 Firefox，B 站允许公开匿名访问。
  * - cookies.txt: 放置于项目根目录，从任意浏览器导出，通用性最好
  * - Firefox: cookie 不使用 DPAPI 加密，yt-dlp 可直接读取
  */
-function getCookieArgs(): string[] {
+function getCookieArgs(url: string): string[] {
   if (existsSync(COOKIES_FILE)) {
     return ["--cookies", COOKIES_FILE];
   }
   // Firefox 的 cookie 不加密，不受 Windows DPAPI 限制
-  return ["--cookies-from-browser", "firefox"];
+  return detectPlatform(url) === "bilibili" ? [] : ["--cookies-from-browser", "firefox"];
 }
 
 // --js-runtimes 参数在 yt-dlp 2025.02 才加入，旧版本会报 unrecognized arguments 直接失败。
@@ -83,29 +84,38 @@ async function getCommonYtDlpArgs(): Promise<string[]> {
 }
 
 /**
- * 解析视频链接，提取视频元信息（支持 YouTube / 抖音 / 等 yt-dlp 兼容平台）
+ * 提取受支持的 YouTube / Bilibili 视频元信息。
  */
 export async function extractVideoInfo(url: string): Promise<VideoInfo> {
   url = normalizeVideoUrl(url);
+  const bilibili = detectPlatform(url) === "bilibili";
+  if (bilibili) url = await resolveBilibiliUrl(url);
   const args = [
     "--dump-json",
     "--no-playlist",
     ...(await getCommonYtDlpArgs()),
-    ...getCookieArgs(),
+    ...getCookieArgs(url),
+    ...(bilibili ? ["--write-subs", "--simulate"] : []),
     url,
   ];
   const { stdout } = await runYtDlp(args);
 
   const data = JSON.parse(stdout);
   if (!isValidVideoId(data.id)) throw new Error("视频元信息中的 ID 无效");
+  // av/短链由提取器解析为 BV，分 P 仍以经校验的用户选择为准，不使用可能包含 cid 的下载器 ID。
+  const bvid = bilibili ? String(data.id).match(/^(BV[A-Za-z0-9]{10})(?:_|$)/)?.[1] : undefined;
+  if (bilibili && !bvid) throw new Error("Bilibili 视频元信息无效");
+  const page = bilibili ? new URL(url).searchParams.get("p")! : undefined;
+  const canonicalUrl = bilibili ? `https://www.bilibili.com/video/${bvid}?p=${page}` : undefined;
   const info: VideoInfo = {
-    id: data.id,
+    id: bilibili ? `${bvid}_p${page}` : data.id,
+    ...(canonicalUrl ? { canonicalUrl } : {}),
     title: data.title,
     duration: data.duration,
     thumbnail: data.thumbnail,
     uploader: data.uploader || data.channel || data.uploader_id || data.creator || "Unknown",
   };
-  subtitleHandoff.remember(info, url, selectSubtitleTracks(data));
+  subtitleHandoff.remember(info, canonicalUrl ?? url, selectSubtitleTracks(data));
   return info;
 }
 
@@ -115,24 +125,25 @@ export async function extractVideoInfo(url: string): Promise<VideoInfo> {
  * info 可由调用方预先提取（如 tryDownloadSubtitles 已拿到），避免重复 --dump-json
  */
 export async function downloadAudio(url: string, preInfo?: VideoInfo, directory = TEMP_DIR): Promise<ProcessResult> {
-  url = normalizeVideoUrl(url);
+  url = normalizeVideoUrl(preInfo?.canonicalUrl ?? url);
   await ensureTempDir();
 
   const platform = detectPlatform(url);
-  if (platform === "youtube") {
-    // YouTube 走 yt-dlp 流程
+  if (platform === "youtube" || platform === "bilibili") {
+    // YouTube / Bilibili 共用受控 yt-dlp 下载。
     const info = preInfo ?? (await extractVideoInfo(url));
+    url = info.canonicalUrl ?? url;
     if (!isValidVideoId(info.id)) throw new Error("视频元信息中的 ID 无效");
     subtitleHandoff.take(info, url);
     const outputTemplate = path.join(directory, `${info.id}.%(ext)s`);
 
     const { stdout } = await runYtDlp([
-      "-f", "bestaudio[ext=m4a]/bestaudio",
+      "-f", platform === "bilibili" ? "bestaudio[ext=m4a]/bestaudio/best" : "bestaudio[ext=m4a]/bestaudio",
       "--output", outputTemplate,
       "--no-playlist",
       "--no-simulate", "--print", "after_move:%(filepath)j",
       ...(await getCommonYtDlpArgs()),
-      ...getCookieArgs(),
+      ...getCookieArgs(url),
       url,
     ]);
 
@@ -153,9 +164,10 @@ export async function downloadAudio(url: string, preInfo?: VideoInfo, directory 
  * 失败由调用方 catch 降级为音频-only，不阻塞主流程
  */
 export async function downloadLowResVideo(url: string, preInfo?: VideoInfo, directory = TEMP_DIR, budget?: VisionBudget): Promise<string> {
-  url = normalizeVideoUrl(url);
+  url = normalizeVideoUrl(preInfo?.canonicalUrl ?? url);
   await ensureTempDir();
   const info = preInfo ?? (await extractVideoInfo(url));
+  url = info.canonicalUrl ?? url;
   if (!isValidVideoId(info.id)) throw new Error("视频元信息中的 ID 无效");
   subtitleHandoff.take(info, url);
   const outputTemplate = path.join(directory, `${info.id}-video.%(ext)s`);
@@ -164,12 +176,12 @@ export async function downloadLowResVideo(url: string, preInfo?: VideoInfo, dire
   const timeout = budget ? Math.floor((budget.remainingMs(3000) - 2000) / 1000) * 1000 : 120000;
 
   const args = [
-    "-f", "best[height<=240]/bestvideo[height<=240]/best[height<=144]",
+    "-f", detectPlatform(url) === "bilibili" ? "worstvideo/worst" : "best[height<=240]/bestvideo[height<=240]/best[height<=144]",
     "--output", outputTemplate,
     "--no-playlist",
     "--no-simulate", "--print", "after_move:%(filepath)j",
     ...commonArgs,
-    ...getCookieArgs(),
+    ...getCookieArgs(url),
     url,
   ];
   let stdout: string;
@@ -194,7 +206,7 @@ async function usableSubtitle(file: string, duration: number): Promise<boolean> 
 }
 
 /**
- * 仅下载字幕（不下载视频），用于 YouTube 快速路径
+ * 仅下载字幕（不下载视频），用于 YouTube / Bilibili 快速路径
  * 成功返回字幕文件路径，失败返回 null
  * info 可由调用方预先提取，避免重复 --dump-json
  */
@@ -203,9 +215,10 @@ export async function tryDownloadSubtitles(url: string, preInfo?: VideoInfo, dir
   subtitlePath: string | null;
   subtitle?: SubtitleSelection;
 }> {
-  url = normalizeVideoUrl(url);
+  url = normalizeVideoUrl(preInfo?.canonicalUrl ?? url);
   await ensureTempDir();
   const info = preInfo ?? (await extractVideoInfo(url));
+  url = info.canonicalUrl ?? url;
   if (!isValidVideoId(info.id)) throw new Error("视频元信息中的 ID 无效");
   let tracks = subtitleHandoff.take(info, url);
   if (!tracks) {
@@ -225,11 +238,12 @@ export async function tryDownloadSubtitles(url: string, preInfo?: VideoInfo, dir
     assertActive?.();
     const file = path.join(directory, `${info.id}.${track.language}.${track.format}`);
     try {
-      await downloadPublicSubtitle(track.url, file);
+      if (track.data !== undefined) await fs.writeFile(file, track.data, "utf-8");
+      else await downloadPublicSubtitle(track.url, file, detectPlatform(url) === "bilibili" ? "bilibili" : "youtube");
       assertActive?.();
       const valid = await usableSubtitle(file, info.duration);
       assertActive?.();
-      if (valid) return { info, subtitlePath: file, subtitle: { language: track.language, kind: track.kind, delivery: "direct" } };
+      if (valid) return { info, subtitlePath: file, subtitle: { language: track.language, kind: track.kind, delivery: track.data !== undefined ? "inline" : "direct" } };
     } catch {
       assertActive?.();
       // 轨道失效/空文件/解析失败后尝试选定自动轨道，仍不成功则交给音频转写。
@@ -239,13 +253,13 @@ export async function tryDownloadSubtitles(url: string, preInfo?: VideoInfo, dir
 
   // 直链可能需要 Cookie 或已失效：最多一次原有下载器兜底，仍只请求选中的单轨。
   const fallback = tracks?.[0];
-  if (fallback) {
+  if (fallback?.url) {
     const file = path.join(directory, `${info.id}.${fallback.language}.${fallback.format}`);
     assertActive?.();
     try {
       await runYtDlp(["--skip-download", fallback.kind === "manual" ? "--write-subs" : "--write-auto-subs",
         "--sub-langs", `^${fallback.language}$`, "--sub-format", fallback.format,
-        "--output", path.join(directory, info.id), "--no-playlist", ...(await getCommonYtDlpArgs()), ...getCookieArgs(), url], 30000);
+        "--output", path.join(directory, info.id), "--no-playlist", ...(await getCommonYtDlpArgs()), ...getCookieArgs(url), url], 30000);
       assertActive?.();
       const valid = await usableSubtitle(file, info.duration);
       assertActive?.();

@@ -11,7 +11,7 @@ let sequence = 0;
 let main: typeof import("../src/app/api/process/route");
 let followup: typeof import("../src/app/api/followup/route");
 let frames: typeof import("../src/app/api/frames/route");
-let verify: typeof import("../src/app/api/verify/route");
+let verify: typeof import("../src/app/api/session/route");
 let analysisStatus: typeof import("../src/app/api/analyses/[analysisId]/route");
 let sessions: typeof import("../src/lib/session");
 let analyses: typeof import("../src/lib/analysis-store");
@@ -39,7 +39,7 @@ before(async () => {
   main = await import("../src/app/api/process/route");
   followup = await import("../src/app/api/followup/route");
   frames = await import("../src/app/api/frames/route");
-  verify = await import("../src/app/api/verify/route");
+  verify = await import("../src/app/api/session/route");
   analysisStatus = await import("../src/app/api/analyses/[analysisId]/route");
   sessions = await import("../src/lib/session");
   analyses = await import("../src/lib/analysis-store");
@@ -446,7 +446,7 @@ test("SSE 保留流/结果契约，备用模型完成顺序不改变图片身份
   }
 });
 
-test("帧签名不能跨会话转用，访问码回退仍要求归属，删除后立即拒绝", async () => {
+test("帧签名不能跨会话转用，旧访问码不能绕过签名，删除后立即拒绝", async () => {
   const owner = await processFor();
   const stranger = await processFor();
   const url = new URL(owner.data.frames[0].src, "http://localhost");
@@ -454,7 +454,7 @@ test("帧签名不能跨会话转用，访问码回退仍要求归属，删除�
   assert.equal((await frames.GET(new NextRequest(url))).status, 404);
   url.searchParams.set("token", "invalid");
   assert.equal((await frames.GET(new NextRequest(url, { headers: { cookie: owner.cookie } }))).status, 401);
-  assert.equal((await frames.GET(new NextRequest(url, { headers: { cookie: owner.cookie, "x-access-code": "isolation-test-only" } }))).status, 200);
+  assert.equal((await frames.GET(new NextRequest(url, { headers: { cookie: owner.cookie, "x-access-code": "isolation-test-only" } }))).status, 401);
   await main.DELETE(request({ videoId, analysisId: owner.data.analysisId }, owner.cookie, "DELETE"));
   assert.equal((await frames.GET(new NextRequest(url, { headers: { cookie: owner.cookie, "x-access-code": "isolation-test-only" } }))).status, 404);
 });
@@ -662,7 +662,7 @@ test("analysis status is read-only, owned, uncached, and respects expiry/deletio
   assert.equal(data.expiresAt, analysis.contentExpiresAt);
   assert.equal((await status(initial.data.analysisId, "")).status, 404);
   assert.equal((await status("invalid")).status, 404);
-  assert.equal((await status(initial.data.analysisId, initial.cookie, "wrong")).status, 401);
+  assert.equal((await status(initial.data.analysisId, initial.cookie, "wrong")).status, 200);
   transcripts.getTranscript(initial.data.analysisId)!.expiresAt = Date.now() - 1;
   assert.equal((await (await status()).json()).canFollowUp, false);
   analyses.revokeAnalysis(analysis);
@@ -684,4 +684,26 @@ test("learning metadata survives cache without renewing content deadlines", asyn
     assert.equal(raw.canonicalUrl, `https://www.youtube.com/watch?v=${videoId}`);
     assert.ok(raw.framesExpireAt > raw.expiresAt);
   } finally { mockState.asr(); }
+});
+
+test("B 站分 P 独立缓存、SSE、追问与来源链接", async () => {
+  const cookie = cookieFor(await verify.POST(request({})));
+  const run = async (page: number) => {
+    const response = await main.POST(request({ url: `https://www.bilibili.com/video/BV1xx411c7mD?p=${page}` }, cookie));
+    assert.equal(response.status, 200);
+    const result = parseEvents(await response.text()).find(event => event.type === "result")?.data;
+    assert.ok(result);
+    created.add(result.analysisId);
+    return result;
+  };
+  const first = await run(1), second = await run(2), cached = await run(2);
+  assert.equal(first.video.id, "BV1xx411c7mD_p1");
+  assert.equal(second.video.id, "BV1xx411c7mD_p2");
+  assert.notEqual(first.analysisId, second.analysisId);
+  assert.equal(cached.analysisId, second.analysisId);
+  assert.equal(cached.cached, true);
+  assert.equal(second.platform, "bilibili");
+  assert.equal(second.canonicalUrl, "https://www.bilibili.com/video/BV1xx411c7mD?p=2");
+  assert.equal((await followup.POST(request({ videoId: second.video.id, analysisId: second.analysisId, question: "总结要点" }, cookie))).status, 200);
+  assert.equal((await main.DELETE(request({ videoId: second.video.id, analysisId: second.analysisId }, cookie, "DELETE"))).status, 200);
 });

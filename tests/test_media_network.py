@@ -40,6 +40,32 @@ class MediaNetworkTests(unittest.TestCase):
         environment.start()
         self.addCleanup(environment.stop)
 
+    def test_bilibili_domains_and_short_links(self):
+        for host in ["www.bilibili.com", "api.bilibili.com", "b23.tv", "upos-sz-mirror.bilivideo.com", "aisubtitle.hdslb.com"]:
+            network.validate_url("https://" + host + "/video", "bilibili")
+        for url in ["https://bilibili.com.evil.test/", "https://evilbilibili.com/", "https://127.0.0.1/", "https://www.youtube.com/"]:
+            with self.assertRaises(network.NetworkPolicyError):
+                network.validate_url(url, "bilibili")
+        calls = []
+        @contextlib.contextmanager
+        def request(url, scope):
+            calls.append((url, scope))
+            yield Response(302, "https://www.bilibili.com/video/BV1xx411c7mD/?p=2&share=1")
+        with patch.object(network, "request_url", request):
+            self.assertEqual(network.resolve_bilibili_url("https://b23.tv/abc"), "https://www.bilibili.com/video/BV1xx411c7mD?p=2")
+        self.assertEqual(len(calls), 1)
+
+    def test_bilibili_redirect_rejected_before_next_request(self):
+        for target in ["https://127.0.0.1/", "https://evil.test/", "https://space.bilibili.com/123", "https://www.bilibili.com/video/BV1xx411c7mD?p=0", "https://www.bilibili.com/video/BV1xx411c7mD?p=1&p=2", "https://b23.tv/abc"]:
+            calls = []
+            @contextlib.contextmanager
+            def request(url, scope):
+                calls.append(url)
+                yield Response(302, target)
+            with patch.object(network, "request_url", request), self.assertRaises(network.NetworkPolicyError):
+                network.resolve_bilibili_url("https://b23.tv/abc")
+            self.assertEqual(len(calls), 1)
+
     def test_01_host_boundaries(self):
         for url in ["https://www.youtube.com/watch?v=id", "https://r1.googlevideo.com/a?signature=x"]:
             network.validate_url(url, "youtube")

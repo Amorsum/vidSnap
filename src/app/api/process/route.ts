@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { type VideoInfo, type ProcessResult } from "@/lib/video-processor";
 import { getTranscript, parseBuiltinSubtitle, type TranscriptResult } from "@/lib/transcriber";
 import { transcribeWithSenseVoice } from "@/lib/sensevoice";
-import { parseVideoUrl, UNSUPPORTED_PLATFORM_MESSAGE } from "@/lib/url-utils";
+import { videoSourceUrl, parseVideoUrl, UNSUPPORTED_PLATFORM_MESSAGE, type Platform } from "@/lib/url-utils";
 import { getProcessor } from "@/lib/platforms";
 import { callLLMStreaming } from "@/lib/llm";
 import type { TokenUsage } from "@/lib/llm";
@@ -46,16 +46,22 @@ function sseEvent(data: unknown): string {
 }
 
 /** 将底层命令错误转为可操作的用户提示，避免把整段 yt-dlp stderr 直接暴露到页面。 */
-function getUserFacingProcessError(error: unknown): string {
+function getUserFacingProcessError(error: unknown, platform: Platform): string {
   const whisperMessage = whisperFailureMessage(error);
   if (whisperMessage) return whisperMessage;
   if (error instanceof ServiceCapacityError) return error.message;
   if (!(error instanceof Error)) return "处理失败，请稍后重试";
 
-  const message = error.message;
+  // execFile.message 包含命令参数；错误分类只读 stderr，避免 --cookies 误判所有失败为登录问题。
+  const message = "stderr" in error && typeof error.stderr === "string" && error.stderr ? error.stderr : error.message;
+  if (platform === "bilibili" && /412|403|352|login|cookies|premium|付费|会员/i.test(message)) {
+    return "Bilibili 暂时限制访问或该视频需要登录权限，请稍后重试，或由管理员更新服务器 cookies.txt。";
+  }
+  if (platform === "bilibili" && /短链接/.test(message)) return "Bilibili 短链接无法解析，请复制视频页的完整链接后重试。";
+
   if (/^该分析已删除或过期|^该视频没有检测到语音内容|^等待同视频处理超时|^共享结果已失效|^连接已断开/.test(message)) return message;
   if (/WinError 10013|Failed to establish a new connection|Unable to download (?:webpage|API page)/i.test(message)) {
-    return "无法连接 YouTube，请检查服务器网络或代理设置后重试。";
+    return "无法连接视频平台，请检查服务器网络或代理设置后重试。";
   }
   if (/Sign in to confirm|cookies-from-browser|cookies\.txt|HTTP Error 403/i.test(message)) {
     return "YouTube 要求登录验证，请更新服务器上的 cookies.txt 后重试。";
@@ -541,7 +547,7 @@ export async function POST(request: NextRequest) {
             data: {
               analysisId: analysis.id,
               platform: videoUrl.platform,
-              canonicalUrl: videoUrl.platform === "youtube" ? `https://www.youtube.com/watch?v=${info.id}` : `https://www.douyin.com/video/${info.id}`,
+              canonicalUrl: videoSourceUrl(videoUrl.platform, info.id),
               expiresAt: analysis.contentExpiresAt,
               framesExpireAt: analysis.framesExpireAt,
               transcription: transcript.transcription ?? { provider: transcript.source === "builtin" ? "builtin" : "unknown", timing: transcript.source === "builtin" ? "source" : "unknown" },
@@ -572,7 +578,7 @@ export async function POST(request: NextRequest) {
           const deleted = analysis?.status === "deleted";
           if (!deleted && !connection.signal.aborted) console.error("[process] 视频处理失败:", error);
           const metrics = { totalMs: timer.elapsedMs(), timings: timer.snapshot() };
-          const message = deleted ? "该分析已删除或过期，请重新处理视频" : getUserFacingProcessError(error);
+          const message = deleted ? "该分析已删除或过期，请重新处理视频" : getUserFacingProcessError(error, videoUrl.platform);
           outcome = { error: message };
           send({ type: "error", message, metrics });
           console.log("[process-timing]", JSON.stringify({ analysisId: analysis?.id, platform: videoUrl.platform, cached: cacheHit, shared, outcome: "failed", ...metrics }));

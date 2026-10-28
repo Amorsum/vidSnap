@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import Icon from "@/components/Icon";
@@ -81,150 +80,14 @@ function LandingPreview() {
 }
 
 export default function Home() {
-  // ─── 访问码门禁 ───
-  const [mounted, setMounted] = useState(false);
-  const [gatePassed, setGatePassed] = useState(false);
-  const [accessCode, setAccessCode] = useState("");
-  const [gateError, setGateError] = useState("");
-  const [gateChecking, setGateChecking] = useState(false);
-
-  // 等待校验响应落下会话 cookie 后再开放提交，避免首个处理请求与身份签发竞态。
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const stored = localStorage.getItem("vidsnap_access_code") || "";
-      const urlCode = new URLSearchParams(window.location.search).get("code") || "";
-      const candidate = stored || urlCode;
-      {
-        setAccessCode(candidate);
-        setGateChecking(true);
-        if (urlCode) {
-          localStorage.setItem("vidsnap_access_code", urlCode);
-          history.replaceState({}, "", window.location.pathname); // 清除 URL 中的码
-        }
-        fetch("/api/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code: candidate }),
-        })
-          .then((response) => (response.status === 401 ? { invalid: true } : response.json()))
-          .then((data) => {
-            // 仅在确认访问码失效时退回门禁（429 等暂时性失败不影响已放行的用户）
-            if (data?.invalid) {
-              localStorage.removeItem("vidsnap_access_code");
-              setAccessCode("");
-              setGatePassed(false);
-            } else {
-              setGatePassed(true);
-            }
-          })
-          .catch(() => { setGatePassed(true); })
-          .finally(() => { setGateChecking(false); });
-      }
-      setMounted(true);
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  const handleGateSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const code = accessCode.trim();
-    if (!code || gateChecking) return;
-    setGateChecking(true);
-    setGateError("");
-    try {
-      const res = await fetch("/api/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        localStorage.setItem("vidsnap_access_code", code);
-        setGatePassed(true);
-      } else {
-        setGateError(data.error || "访问码错误");
-      }
-    } catch {
-      setGateError("网络请求失败，请稍后重试");
-    } finally {
-      setGateChecking(false);
-    }
-  };
-
-  const handleUnauthorized = useCallback(() => {
-    localStorage.removeItem("vidsnap_access_code");
-    setAccessCode("");
-    setGatePassed(false);
-  }, []);
-
   return (
     <div id="top" className="page-glow relative flex min-h-screen flex-col overflow-x-clip">
       <div className="dot-grid pointer-events-none absolute inset-x-0 top-16 h-[560px] opacity-40" />
       <Header />
 
-      {!mounted ? null : !gatePassed ? (
-        <main className="relative z-10 flex flex-1 items-center justify-center px-5 py-12 sm:px-8">
-          <div className="surface-shadow grid w-full max-w-4xl overflow-hidden rounded-[28px] border border-white/80 bg-white lg:grid-cols-[1.08fr_0.92fr]">
-            <div className="relative hidden min-h-[480px] overflow-hidden bg-[#181a2a] p-10 text-white lg:flex lg:flex-col lg:justify-between">
-              <div className="dot-grid absolute inset-0 opacity-30" />
-              <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-brand/30 blur-3xl" />
-              <div className="relative">
-                <div className="mb-7 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-[#beb9ff] ring-1 ring-white/10">
-                  <Icon name="sparkles" size={23} />
-                </div>
-                <h1 className="max-w-sm text-3xl font-semibold leading-tight tracking-[-0.04em]">少看一会儿视频，<br />多得一些答案。</h1>
-                <p className="mt-4 max-w-sm text-sm leading-7 text-white/55">VidSnap 会同时理解字幕与画面，将一段视频转换为可快速阅读、随时追问的内容工作台。</p>
-              </div>
-              <div className="relative grid grid-cols-3 gap-3">
-                {[
-                  ["01", "字幕 + 画面"],
-                  ["02", "时间节点"],
-                  ["03", "Agent 追问"],
-                ].map(([index, label]) => (
-                  <div key={index} className="rounded-xl border border-white/10 bg-white/5 p-3">
-                    <span className="font-mono text-[10px] text-[#9f98ff]">{index}</span>
-                    <p className="mt-1 text-[11px] text-white/60">{label}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <form onSubmit={handleGateSubmit} className="flex min-h-[440px] flex-col justify-center p-7 sm:p-10 lg:p-12">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-soft text-brand">
-                <Icon name="lock" size={20} />
-              </div>
-              <p className="mt-7 text-xs font-semibold uppercase tracking-[0.16em] text-brand">内部演示</p>
-              <h1 className="mt-2 text-2xl font-bold tracking-[-0.03em] text-ink">输入访问码</h1>
-              <p className="mt-2 text-sm leading-6 text-muted">这是 VidSnap 的演示环境，请使用站长提供的访问码继续。</p>
-              <label htmlFor="access-code" className="mt-7 text-xs font-semibold text-muted">访问码</label>
-              <input
-                id="access-code"
-                type="password"
-                value={accessCode}
-                onChange={(e) => setAccessCode(e.target.value)}
-                placeholder="请输入访问码"
-                autoFocus
-                aria-describedby={gateError ? "gate-error" : undefined}
-                className="mt-2 w-full rounded-xl border border-line bg-surface-soft/60 px-4 py-3 text-sm text-ink outline-none transition-all placeholder:text-faint focus:border-brand/50 focus:bg-white focus:ring-4 focus:ring-brand/10"
-              />
-              {gateError && <p id="gate-error" className="mt-2 text-xs text-red-500" role="alert">{gateError}</p>}
-              <button
-                type="submit"
-                disabled={gateChecking || !accessCode.trim()}
-                className="brand-shadow mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-3 text-sm font-semibold text-white transition-all hover:-translate-y-0.5 hover:bg-brand-strong disabled:translate-y-0 disabled:cursor-not-allowed disabled:bg-[#b8b4ea] disabled:shadow-none"
-              >
-                {gateChecking ? "正在验证..." : <>进入 VidSnap <Icon name="arrow-right" size={16} /></>}
-              </button>
-              <p className="mt-5 text-center text-[11px] text-faint">访问码仅保存在当前浏览器</p>
-            </form>
-          </div>
-        </main>
-      ) : (
-        <LearningWorkspace accessCode={accessCode} onUnauthorized={handleUnauthorized}>
-          <LandingPreview />
-        </LearningWorkspace>
-      )}
+      <LearningWorkspace>
+        <LandingPreview />
+      </LearningWorkspace>
 
       <Footer />
     </div>

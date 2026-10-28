@@ -1,10 +1,8 @@
 @echo off
-echo Starting VidSnap...
-echo 1. Starting Next.js server...
-start /min cmd /k "cd /d d:\learning\GitHub\vidSnap && node ./node_modules/next/dist/bin/next start -p 3000 -H 0.0.0.0"
-echo 2. Waiting for server to start...
-timeout /t 5 /nobreak >nul
-echo 3. Starting Cloudflare Tunnel...
-start /min cmd /k "cd /d d:\learning\GitHub\vidSnap && .\cloudflared.exe tunnel --config cloudflared-config.yml run"
-echo VidSnap is starting! Check the new tunnel URL from the Cloudflare console window.
+cd /d "%~dp0"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start-services.ps1"
+if errorlevel 1 (
+  pause
+  exit /b 1
+)
 pause

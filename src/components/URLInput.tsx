@@ -16,7 +16,7 @@ export default function URLInput({ onSubmit, isLoading, initialValue }: URLInput
       onSubmit={onSubmit}
       isLoading={isLoading}
       initialValue={initialValue}
-      placeholder="粘贴 YouTube / 抖音视频链接..."
+      placeholder="粘贴 YouTube / Bilibili / 抖音视频链接..."
       submitLabel={isLoading ? "正在解析" : "开始解析"}
       transformValue={extractUrl}
       leadingIcon={<Icon name="link" size={19} className="shrink-0 text-brand" />}

@@ -179,6 +179,7 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-10-28 | B 站学习入口与发布 | 接入 BV/av、短链与分 P，移除访问码并保留匿名资源保护；281 项回归、真实媒体及桌面/手机验证通过，更新生产构建并重启，本机与公网新版页面验收通过。 | src/lib/video-processor.ts, src/lib/url-utils.ts, scripts/start-services.ps1 | ✅ 已完成 |
 | 2026-10-26 | 恢复交付与主分支开发 | 实现刷新与断线恢复并完成 254 项自动测试、31 组隔离浏览器检查；按用户最新要求将 demo 历史快进整合到 main，后续统一在 main 开发提交。 | src/app/api/process/route.ts, src/components/LearningWorkspace.tsx, docs/LEARNING_WORKSPACE.md | ✅ 已完成，本次提交 |
 | 2026-10-26 | 学习闭环交付 | 按用户授权将学习工作台、依赖的在途合并与视觉预算整合为一次提交并推送 demo；核对 README、248 项回归和浏览器记录，保留无关协作配置。 | README.md, docs/LEARNING_WORKSPACE.md, docs/OPTIMIZATION_PLAN.md | ✅ 已实现验证，本次提交 |
 | 2026-10-26 | 学习闭环 | 实现等待/重试、原文搜索与引用、移动端追问、IndexedDB 本地笔记与 Markdown 导出；来源精度/视觉状态进入缓存，新增只读分析资格查询。248 项回归、16 组学习浏览器检查、既有会话隔离、lint/类型与隔离构建通过；真实平台验收仍待补。 | docs/LEARNING_WORKSPACE.md, docs/test-reports/TEST-20261026-LEARNING.md | ✅ 已实现并验证，未提交 |

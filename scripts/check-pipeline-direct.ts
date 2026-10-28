@@ -82,14 +82,14 @@ async function main() {
       const { NextRequest } = await import("next/server");
       const processRoute = await import("../src/app/api/process/route");
       const followupRoute = await import("../src/app/api/followup/route");
-      const verifyRoute = await import("../src/app/api/verify/route");
+      const verifyRoute = await import("../src/app/api/session/route");
       const { checkPipeline } = await import("./pipeline-acceptance");
       const adapter: typeof fetch = async (input, init) => {
         const url = new URL(String(input));
         if (url.pathname === "/") return new Response("", { headers: { "x-vidsnap-live-acceptance": "text-only" } });
         const request = new NextRequest(new Request(url, init));
         let response: Response;
-        if (url.pathname === "/api/verify") response = await verifyRoute.POST(request);
+        if (url.pathname === "/api/session") response = await verifyRoute.POST(request);
         else if (url.pathname === "/api/followup") response = await followupRoute.POST(request);
         else if (url.pathname === "/api/process") response = init?.method === "DELETE" ? await processRoute.DELETE(request) : await processRoute.POST(request);
         else throw new Error("unexpected_acceptance_route");
@@ -97,7 +97,7 @@ async function main() {
         return response;
       };
       // 地址仅构造 NextRequest / Origin，不建立 HTTP 连接或监听端口。
-      const result = await checkPipeline("http://127.0.0.1:3419", process.env.ACCESS_CODE ?? "", adapter);
+      const result = await checkPipeline("http://127.0.0.1:3419", adapter);
       result.checks[0].details = { transport: "in_process_route_handlers", http_listener: false, mock_upstream: false, text_only: true };
       report = { ...result, scope: "live_text_route_handlers", transport: "in_process_route_handlers" };
       process.exitCode = result.text_api_pipeline_verified ? 0 : 1;

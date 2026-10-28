@@ -50,3 +50,8 @@ test("交接在两分钟边界失效，最多 32 条，输入更改不能污染�
   tracks[0].url = "changed";
   assert.notEqual(handoff.take(first, "url")?.[0].url, "changed");
 });
+
+test("B 站人工和 AI 字幕分别保留，弹幕不进入字幕", () => {
+  const tracks = selectSubtitleTracks({ subtitles: { "zh-CN": [{ ext: "srt", data: "manual" }], "ai-zh": [{ ext: "srt", data: "automatic" }], danmaku: [{ ext: "xml", url: "https://comment.bilibili.com/123.xml" }] } });
+  assert.deepEqual(tracks.map(track => [track.kind, track.data]), [["manual", "manual"], ["automatic", "automatic"]]);
+});

@@ -17,11 +17,11 @@ import { deleteNote, listNotes, saveNote } from "@/lib/notebook";
 import { ProcessStreamInterruptedError, readProcessResult, retryDeadline } from "@/lib/process-stream";
 import { readPendingProcess, writePendingProcess, type PendingProcess } from "@/lib/process-recovery";
 
-interface Props { accessCode: string; onUnauthorized: () => void; children: ReactNode }
+interface Props { children: ReactNode }
 type Tab = "summary" | "transcript" | "chat";
 const tabs: { id: Tab; label: string }[] = [{ id: "summary", label: "总结" }, { id: "transcript", label: "原文" }, { id: "chat", label: "追问" }];
 
-export default function LearningWorkspace({ accessCode, onUnauthorized, children }: Props) {
+export default function LearningWorkspace({ children }: Props) {
   const [notes, setNotes] = useState<StudyNote[]>([]);
   const savedNotes = useRef<StudyNote[]>([]);
   const [notebookReady, setNotebookReady] = useState(false);
@@ -124,17 +124,16 @@ export default function LearningWorkspace({ accessCode, onUnauthorized, children
     const controller = new AbortController();
     const check = async () => {
       try {
-        const response = await fetch(`/api/analyses/${analysisId}`, { headers: { "X-Access-Code": accessCode }, cache: "no-store", signal: controller.signal });
+        const response = await fetch(`/api/analyses/${analysisId}`, { cache: "no-store", signal: controller.signal });
         const data = await response.json();
         if (controller.signal.aborted || current.current?.analysis.analysisId !== analysisId) return;
-        if (response.status === 401) { onUnauthorized(); return; }
         setAvailability(response.ok && data.canFollowUp ? "available" : response.status === 404 || response.ok ? "unavailable" : "network");
       } catch { if (!controller.signal.aborted && current.current?.analysis.analysisId === analysisId) setAvailability("network"); }
     };
     void check();
     window.addEventListener("focus", check);
     return () => { controller.abort(); window.removeEventListener("focus", check); };
-  }, [analysisId, accessCode, onUnauthorized, statusVersion]);
+  }, [analysisId, statusVersion]);
 
   const update = useCallback((transform: (value: StudyNote) => StudyNote) => {
     if (!current.current) return;
@@ -159,8 +158,7 @@ export default function LearningWorkspace({ accessCode, onUnauthorized, children
     let pending: PendingProcess = recovery ?? { version: 1, url, startedAt: start };
     savePending(pending);
     try {
-      const response = await fetch("/api/process", { method: "POST", headers: { "Content-Type": "application/json", "X-Access-Code": accessCode }, body: JSON.stringify({ url, action: "summarize", ...(recovery ? { resumeOnly: true, analysisId: recovery.analysisId } : {}) }), signal: controller.signal });
-      if (response.status === 401) { onUnauthorized(); return; }
+      const response = await fetch("/api/process", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, action: "summarize", ...(recovery ? { resumeOnly: true, analysisId: recovery.analysisId } : {}) }), signal: controller.signal });
       if (!response.ok) {
         if (response.status === 429) setProcessRetryAt(retryDeadline(response.headers.get("Retry-After")));
         // 恢复限流/暂时故障仍保留线索；普通请求被拒绝时没有新任务。
@@ -192,7 +190,7 @@ export default function LearningWorkspace({ accessCode, onUnauthorized, children
         setError(failure instanceof TypeError ? "网络请求失败，请检查网络连接后恢复" : failure instanceof Error ? failure.message : "处理失败，请重试");
       }
     } finally { busy.current = false; setLoading(false); setGenerating(false); }
-  }, [accessCode, onUnauthorized, persist, processRetryAt, savePending, showNote]);
+  }, [persist, processRetryAt, savePending, showNote]);
 
   useEffect(() => {
     if (!notebookReady) return;
@@ -223,16 +221,15 @@ export default function LearningWorkspace({ accessCode, onUnauthorized, children
     };
     showNote({ ...active, turns: [...active.turns, { id: turnId, question, answer: "", status: "pending", purpose }] });
     try {
-      const response = await fetch("/api/followup", { method: "POST", headers: { "Content-Type": "application/json", "X-Access-Code": accessCode }, body: JSON.stringify({ analysisId: active.analysis.analysisId, videoId: active.analysis.video.id, question }), signal: controller.signal });
+      const response = await fetch("/api/followup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ analysisId: active.analysis.analysisId, videoId: active.analysis.video.id, question }), signal: controller.signal });
       const data = await response.json();
-      if (response.status === 401) { change("访问码已失效，请重新验证后重试。", "error"); onUnauthorized(); return; }
       if (response.status === 429) setAskRetryAt(retryDeadline(response.headers.get("Retry-After")));
       if (response.status === 404) setAvailability("unavailable");
       if (!response.ok || !data.success || typeof data.answer !== "string") throw new Error(data.error || "追问失败，请重试");
       change(data.answer, "success", Array.isArray(data.toolsUsed) ? data.toolsUsed.filter((v: unknown) => typeof v === "string") : undefined);
     } catch (failure) { if (!controller.signal.aborted) change(failure instanceof Error ? failure.message : "网络请求失败，请重试", "error"); }
     finally { asking.current = false; setFollowUpLoading(false); }
-  }, [accessCode, askRetryAt, availability, chooseTab, onUnauthorized, showNote, update]);
+  }, [askRetryAt, availability, chooseTab, showNote, update]);
 
   const reference = useCallback((time: number) => {
     setSelection({ time, sequence: Date.now() }); setTab("transcript");
@@ -287,7 +284,7 @@ export default function LearningWorkspace({ accessCode, onUnauthorized, children
   return <main className="relative z-10 flex flex-1 flex-col items-center gap-5 px-4 pb-10 sm:px-8">
     <section className={`w-full max-w-7xl ${note ? "pt-6" : "pt-12 sm:pt-16"}`}>
       <h1 className={`${note ? "text-2xl" : "text-3xl sm:text-5xl"} font-bold tracking-tight text-ink`}>{note ? "视频学习工作台" : "把视频读懂，把知识留下"}</h1>
-      <p className="mb-5 mt-3 text-base leading-7 text-muted">{note ? "核对原文、追问细节，把理解整理成自己的笔记。" : "粘贴 YouTube 或抖音链接，阅读总结、核对原文，随时继续追问。"}</p>
+      <p className="mb-5 mt-3 text-base leading-7 text-muted">{note ? "核对原文、追问细节，把理解整理成自己的笔记。" : "粘贴 YouTube、Bilibili 或抖音链接，阅读总结、核对原文，随时继续追问。"}</p>
       <URLInput key={note?.id ?? "new"} onSubmit={submit} isLoading={loading || followUpLoading || processWait > 0} initialValue={lastUrl || note?.analysis.canonicalUrl} />
     </section>
 

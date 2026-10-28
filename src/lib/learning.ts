@@ -1,3 +1,4 @@
+import { videoSourceUrl } from "./url-utils";
 import type { AnalysisResult, StudyNote, SummaryResult, VisionMetadata } from "./learning-types";
 import { EXCERPT_LABELS } from "./study-tools";
 
@@ -16,11 +17,12 @@ export function isSummaryResult(value: unknown): value is SummaryResult {
 
 export function isAnalysisResult(value: unknown): value is AnalysisResult {
   if (!object(value) || typeof value.analysisId !== "string" || !/^[a-f0-9-]{36}$/.test(value.analysisId)
-    || !["youtube", "douyin"].includes(String(value.platform)) || typeof value.canonicalUrl !== "string"
+    || !["youtube", "douyin", "bilibili"].includes(String(value.platform)) || typeof value.canonicalUrl !== "string"
     || !time(value.expiresAt) || !object(value.video) || !isSummaryResult(value.result)) return false;
   const v = value.video;
   if (typeof v.id !== "string" || typeof v.title !== "string" || !time(v.duration)
     || typeof v.thumbnail !== "string" || typeof v.uploader !== "string") return false;
+  if (value.platform === "bilibili" && !/^(BV[A-Za-z0-9]{10}|av[1-9]\d{0,19})_p([1-9]\d{0,4})$/.test(v.id)) return false;
   return ["builtin", "whisper"].includes(String(value.transcriptSource)) && typeof value.transcriptText === "string"
     && object(value.transcription) && ["builtin", "sensevoice", "whisper", "unknown"].includes(String(value.transcription.provider))
     && ["source", "estimated", "unknown"].includes(String(value.transcription.timing))
@@ -48,9 +50,8 @@ export function parseTime(text: string): number | null {
 
 /** 只从已验证的平台和 ID 构造外链，不信任本地存储中的任意 URL。 */
 export function sourceUrl(analysis: Pick<AnalysisResult, "platform" | "video">, seconds = 0): string {
-  return analysis.platform === "youtube"
-    ? `https://www.youtube.com/watch?v=${encodeURIComponent(analysis.video.id)}&t=${Math.max(0, Math.floor(seconds))}s`
-    : `https://www.douyin.com/video/${encodeURIComponent(analysis.video.id)}`;
+  const url = videoSourceUrl(analysis.platform, analysis.video.id);
+  return analysis.platform === "douyin" ? url : `${url}&t=${Math.max(0, Math.floor(seconds))}${analysis.platform === "youtube" ? "s" : ""}`;
 }
 
 export function transcriptionLabel(analysis: Pick<AnalysisResult, "transcription">): string {

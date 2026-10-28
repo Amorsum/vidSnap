@@ -1,5 +1,5 @@
-export type Platform = "youtube" | "douyin";
-export const UNSUPPORTED_PLATFORM_MESSAGE = "目前仅支持 YouTube 和抖音链接";
+export type Platform = "youtube" | "douyin" | "bilibili";
+export const UNSUPPORTED_PLATFORM_MESSAGE = "请提供有效的 YouTube、Bilibili 或抖音视频链接";
 export const MAX_VIDEO_URL_LENGTH = 4096;
 
 const YOUTUBE_HOSTS = new Set(["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"]);
@@ -29,6 +29,18 @@ export function parseVideoUrl(input: unknown): VideoUrl | null {
   if (parsed.username || parsed.password || parsed.port || text.split("/")[2].includes("@")) return null;
 
   const host = parsed.hostname;
+  if (["bilibili.com", "www.bilibili.com", "m.bilibili.com"].includes(host)) {
+    const id = parsed.pathname.match(/^\/video\/(BV[A-Za-z0-9]{10}|av[1-9]\d{0,19})\/?$/)?.[1];
+    const pages = parsed.searchParams.getAll("p");
+    if (!id || pages.length > 1 || (pages.length === 1 && !/^[1-9]\d{0,4}$/.test(pages[0]))) return null;
+    const page = pages[0] ?? "1";
+    return { platform: "bilibili", videoId: `${id}_p${page}`, url: `https://www.bilibili.com/video/${id}?p=${page}` };
+  }
+  if (host === "b23.tv") {
+    const code = parsed.pathname.match(/^\/([A-Za-z0-9]{1,32})\/?$/)?.[1];
+    if (!code) return null;
+    return { platform: "bilibili", url: `https://b23.tv/${code}` };
+  }
   if (YOUTUBE_HOSTS.has(host) || host === "youtu.be") {
     let id: string | undefined;
     if (host === "youtu.be") {
@@ -70,9 +82,20 @@ export function isValidUrl(url: string): boolean {
   return parseVideoUrl(url) !== null;
 }
 
+/** 仅用平台与服务端 ID 构造来源链接，B 站 ID 包含分 P，避免笔记与缓存串集。 */
+export function videoSourceUrl(platform: Platform, id: string): string {
+  if (platform === "youtube") return `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
+  if (platform === "bilibili") {
+    const match = id.match(/^(BV[A-Za-z0-9]{10}|av[1-9]\d{0,19})_p([1-9]\d{0,4})$/);
+    if (!match) throw new Error("Bilibili 视频 ID 无效");
+    return `https://www.bilibili.com/video/${match[1]}?p=${match[2]}`;
+  }
+  return `https://www.douyin.com/video/${encodeURIComponent(id)}`;
+}
+
 /** 分享文案只提取第一个 HTTP(S) URL；安全校验仍由 parseVideoUrl 执行。 */
 export function extractUrl(text: string): string {
   const trimmed = text.trim();
-  const match = trimmed.match(/https?:\/\/[^\s<>"“”]+/i);
+  const match = trimmed.match(/https?:\/\/[^\s<>"“”，。！？；：、]+/i);
   return match ? match[0].replace(/[，。！？；：、,;!?)）\]】」』'’]+$/u, "") : trimmed;
 }

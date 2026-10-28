@@ -42,7 +42,7 @@ export function timingSummary(metrics: unknown): PipelineTimings & { totalMs: nu
   return { totalMs: metrics.totalMs, stages, ...points };
 }
 
-export async function checkPipeline(base: string, accessCode: string, fetcher: typeof fetch = fetch) {
+export async function checkPipeline(base: string, fetcher: typeof fetch = fetch) {
   base = localAcceptanceUrl(base);
   const checks: Check[] = [];
   let cookie = "";
@@ -52,7 +52,7 @@ export async function checkPipeline(base: string, accessCode: string, fetcher: t
   let failureTimings: ReturnType<typeof timingSummary> | undefined;
   const request = async (route: string, body: unknown, method = "POST", timeout = 10000) => {
     const response = await fetcher(`${base}${route}`, {
-      method, headers: { "Content-Type": "application/json", "X-Access-Code": accessCode, ...(cookie ? { Cookie: cookie } : {}) },
+      method, headers: { "Content-Type": "application/json", ...(cookie ? { Cookie: cookie } : {}) },
       body: JSON.stringify(body), signal: AbortSignal.timeout(timeout), redirect: "error",
     });
     if (response.headers.get("x-vidsnap-live-acceptance") !== "text-only" || response.headers.has("x-vidsnap-test-mocks")) throw new Error("isolation_marker_missing");
@@ -88,8 +88,8 @@ export async function checkPipeline(base: string, accessCode: string, fetcher: t
     await preflight.body?.cancel();
     if (!preflight.ok || preflight.headers.get("x-vidsnap-live-acceptance") !== "text-only" || preflight.headers.has("x-vidsnap-test-mocks")) throw new Error("isolated_live_server_required");
     checks.push({ id: activeStage, status: "pass", details: { text_only: true, mock_upstream: false } });
-    activeStage = "verify";
-    const verification = await request("/api/verify", { code: accessCode });
+    activeStage = "session";
+    const verification = await request("/api/session", {});
     if (!verification.ok) throw new Error("verification_failed");
     cookie = verification.headers.get("set-cookie")?.split(";")[0] ?? "";
     if (!cookie) throw new Error("session_cookie_missing");

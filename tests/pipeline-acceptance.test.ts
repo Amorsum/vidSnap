@@ -14,7 +14,7 @@ function tape(failure = "") {
     const url = String(input);
     requests.push({ url, method: options?.method ?? "GET" });
     if (url === base) return new Response("", { headers });
-    if (url.endsWith("/api/verify")) return Response.json({ success: true }, { headers: { ...headers, "set-cookie": "vidsnap-session=private-session; HttpOnly" } });
+    if (url.endsWith("/api/session")) return Response.json({ success: true }, { headers: { ...headers, "set-cookie": "vidsnap-session=private-session; HttpOnly" } });
     if (url.endsWith("/api/process") && options?.method === "DELETE") return Response.json({ success: true }, { headers });
     if (url.endsWith("/api/process")) {
       const cached = processes++ > 0;
@@ -55,7 +55,7 @@ test("缺少 live 标记或加载替身的服务在任何写请求前停止", as
       assert.equal(options?.method, undefined);
       return new Response("", { headers: responseHeaders });
     };
-    const report = await checkPipeline(base, "private-access-code", fetcher);
+    const report = await checkPipeline(base, fetcher);
     assert.equal(count, 1);
     assert.equal(report.text_api_pipeline_verified, false);
   }
@@ -63,7 +63,7 @@ test("缺少 live 标记或加载替身的服务在任何写请求前停止", as
 
 test("真实流程检查器覆盖门禁、处理、追问、缓存、删除和删除后拒绝，报告不含正文或凭据", async () => {
   const fixture = tape();
-  const report = await checkPipeline(base, "private-access-code", fixture.fetcher);
+  const report = await checkPipeline(base, fixture.fetcher);
   assert.equal(report.text_api_pipeline_verified, true);
   assert.equal(report.full_pipeline_verified, false);
   assert.equal(fixture.requests.length, 7);
@@ -74,7 +74,7 @@ test("真实流程检查器覆盖门禁、处理、追问、缓存、删除和�
 test("处理中途错误和追问失败仍只删除本次分析，不输出原始异常", async () => {
   for (const failure of ["process", "followup"]) {
     const fixture = tape(failure);
-    const report = await checkPipeline(base, "private-code", fixture.fetcher);
+    const report = await checkPipeline(base, fixture.fetcher);
     assert.equal(report.text_api_pipeline_verified, false);
     assert.equal(fixture.requests.at(-1)?.method, "DELETE");
     assert.equal(report.checks.at(-1)?.id, "failure_cleanup");

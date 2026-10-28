@@ -16,10 +16,11 @@ import subprocess
 import sys
 import threading
 import time
-from urllib.parse import urljoin, urlsplit, unquote
+from urllib.parse import urljoin, urlsplit, unquote, parse_qs
 
 
 HOSTS = {
+    "bilibili": ("bilibili.com", "b23.tv", "bilivideo.com", "bilivideo.cn", "bilivideo.net", "hdslb.com"),
     "youtube": ("youtube.com", "youtu.be", "googlevideo.com", "ytimg.com", "google.com", "ggpht.com", "gstatic.com", "googleusercontent.com"),
     "douyin": ("douyin.com", "iesdouyin.com", "amemv.com", "douyinvod.com", "douyinpic.com", "bytecdn.cn", "byteimg.com", "bytegoofy.com", "bytedance.com", "bytedance.net", "pstatp.com", "snssdk.com", "volccdn.com", "bytednsdoc.com", "ibytedtos.com"),
 }
@@ -129,7 +130,7 @@ def request_url(url, scope):
         path = parts.path or "/"
         if parts.query:
             path += "?" + parts.query
-        referer = "https://www.youtube.com/" if scope == "youtube" else "https://www.douyin.com/"
+        referer = {"youtube": "https://www.youtube.com/", "douyin": "https://www.douyin.com/", "bilibili": "https://www.bilibili.com/"}[scope]
         connection.request("GET", path, headers={"User-Agent": USER_AGENT, "Referer": referer})
         yield connection.getresponse()
     finally:
@@ -327,8 +328,8 @@ def chromium_network_options(proxy):
     }
 
 
-def run_yt_dlp(args, timeout):
-    with media_proxy("youtube") as proxy:
+def run_yt_dlp(args, timeout, scope="youtube"):
+    with media_proxy(scope) as proxy:
         environment = {key: value for key, value in os.environ.items()
                        if key.lower() not in ("http_proxy", "https_proxy", "all_proxy", "no_proxy")}
         # 清空客户端绕过规则；所有媒体 URL，包括重定向与分片，走受控代理。
@@ -342,15 +343,52 @@ def run_yt_dlp(args, timeout):
                 raise
 
 
+def bilibili_link_target(url):
+    parts = validate_url(url, "bilibili")
+    if parts.hostname == "b23.tv" and re.fullmatch(r"/[A-Za-z0-9]{1,32}/?", parts.path):
+        return None
+    if parts.hostname not in ("bilibili.com", "www.bilibili.com", "m.bilibili.com"):
+        raise NetworkPolicyError("Bilibili 短链目标不受支持")
+    match = re.fullmatch(r"/video/(BV[A-Za-z0-9]{10}|av[1-9]\d{0,19})/?", parts.path)
+    pages = parse_qs(parts.query, keep_blank_values=True).get("p", ["1"])
+    if not match or len(pages) != 1 or not re.fullmatch(r"[1-9]\d{0,4}", pages[0]):
+        raise NetworkPolicyError("Bilibili 视频或分 P 不受支持")
+    return f"https://www.bilibili.com/video/{match.group(1)}?p={pages[0]}"
+
+
+def resolve_bilibili_url(url, max_redirects=5):
+    visited = set()
+    for hop in range(max_redirects + 1):
+        canonical = bilibili_link_target(url)
+        if canonical:
+            return canonical
+        if url in visited:
+            raise NetworkPolicyError("短链接存在循环跳转")
+        visited.add(url)
+        with request_url(url, "bilibili") as response:
+            location = response.getheader("Location")
+            if response.status not in (301, 302, 303, 307, 308) or not location or hop == max_redirects:
+                raise NetworkPolicyError("Bilibili 短链接未返回有效跳转")
+            url = urljoin(url, location)
+            bilibili_link_target(url)
+    raise NetworkPolicyError("短链接跳转次数超限")
+
+
 def main():
     try:
+        if sys.argv[1] == "resolve-bilibili":
+            print(resolve_bilibili_url(sys.argv[2]))
+            return 0
+        if sys.argv[1] == "yt-dlp-bilibili":
+            return run_yt_dlp(sys.argv[3:], int(sys.argv[2]), scope="bilibili")
         if sys.argv[1] == "yt-dlp":
             return run_yt_dlp(sys.argv[3:], int(sys.argv[2]))
         if sys.argv[1] == "download":
             download_media(sys.argv[2], sys.argv[3])
             return 0
-        if sys.argv[1] == "subtitle":
-            download_media(sys.argv[2], sys.argv[3], max_bytes=4 * 1024 * 1024, scope="youtube", timeout_seconds=20)
+        if sys.argv[1] in ("subtitle", "subtitle-bilibili"):
+            scope = "bilibili" if sys.argv[1] == "subtitle-bilibili" else "youtube"
+            download_media(sys.argv[2], sys.argv[3], max_bytes=4 * 1024 * 1024, scope=scope, timeout_seconds=20)
             return 0
         raise ValueError("不支持的媒体命令")
     except Exception as error:

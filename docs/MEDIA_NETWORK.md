@@ -5,9 +5,11 @@ M0 第三批在 `scripts/media_network.py` 统一校验媒体出站，主处理�
 ## 访问规则
 
 - 只接受 HTTPS、443 端口，无 userinfo、控制字符、反斜线或尾点主机；入口仍由 `url-utils.ts` 校验视频路径。
-- YouTube 与抖音使用各自的平台/CDN 域名后缀白名单，按域名边界匹配，拒绝 `youtube.com.evil.example` 等伪装。确切列表见 `HOSTS`，新增 CDN 必须结合实际失败地址审查，不能直接开放任意域名。
+- YouTube、Bilibili 与抖音使用各自的平台/CDN 域名后缀白名单，按域名边界匹配，拒绝 `youtube.com.evil.example` 等伪装。确切列表见 `HOSTS`，新增 CDN 必须结合实际失败地址审查，不能直接开放任意域名。
 - 对 DNS 返回的全部 IPv4/IPv6 地址检查公网属性，拒绝混合公网/内网结果、环回、私网、链路本地、云元数据、共享地址、保留地址及 IPv6 过渡网络。直接连接刚刚校验的 sockaddr，不按原主机名进行第二次解析；TLS 仍验证原始域名及证书。
 - 抖音短链接逐跳校验目标域名与路径，最多 5 次重定向，拒绝循环、空 Location 和跨域跳转；合法 `iesdouyin.com/share/video/<id>` 归一为标准视频页，再启动浏览器。HTML/脚本型短链跳转不绕过此规则。
+
+Bilibili 的 `b23.tv` 短链同样最多逐跳跳转 5 次，只允许短链和 BV/av 视频页，保留合法分 P。B 站下载单独使用 `bilibili` 出站域名范围（`bilibili.com`、`b23.tv`、`bilivideo.com/cn/net`、`hdslb.com`），不会扩大 YouTube 或抖音的白名单。
 
 ## 客户端接入
 
