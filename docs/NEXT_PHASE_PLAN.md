@@ -2,7 +2,7 @@
 
 日期：2026-10-29。状态：第一阶段学习闭环已实现；N0 已开始，N1—N4 尚未实施。当前功能交付点为 `main` 的 `624893c`，不以规划内容宣称生产能力已具备。
 
-N0 首批新增 Windows GitHub Actions 工作流，覆盖依赖、lint、类型、自动回归和构建；该工作流尚未推送或在 GitHub 实际运行，浏览器隔离入口和发布检查仍待完成。
+N0 首批 Windows GitHub Actions 工作流已在 `7b5fed5` 实际通过依赖、lint、类型、自动回归和构建。接续新增隔离浏览器入口与发布回滚清单，本机 25 组浏览器检查及故障清理演练通过；包含浏览器检查的更新工作流尚待 GitHub 验证。
 
 ## 1. 当前阶段的结论
 
@@ -26,7 +26,7 @@ N0 首批新增 Windows GitHub Actions 工作流，覆盖依赖、lint、类型�
 | 分析归属、结果、字幕和对话均在内存 | [analysis-store.ts](../src/lib/analysis-store.ts)、[process-cache.ts](../src/lib/process-cache.ts)、[transcript-store.ts](../src/lib/transcript-store.ts)、[conversation-store.ts](../src/lib/conversation-store.ts) | 重启后无法校验归属或继续追问；本地笔记不受影响 |
 | 恢复连接只查同进程执行或缓存 | [process-flights.ts](../src/lib/process-flights.ts)、[主路由](../src/app/api/process/route.ts) 的 resumeOnly | 浏览器刷新恢复已实现，服务器重启后的任务恢复尚未实现 |
 | 帧签名密钥按进程生成 | [vision.ts](../src/lib/vision.ts) 的随机签名密钥 | 帧文件还在也不能直接保证旧签名在重启后可用 |
-| 有自动回归命令，尚无仓库 CI 配置 | [package.json](../package.json) 提供 test:security；本轮核对无 .github 目录 | 发布前检查依赖人工执行；缺少干净环境的自动验收 |
+| 自动回归和基础 CI 已具备 | [package.json](../package.json) 提供 test:security，`7b5fed5` 的 GitHub Actions 首次通过 | 浏览器检查已新增，更新后的 CI 仍需实际验收 |
 | 部署依赖个人电脑 | [部署脚本](../scripts/start-services.ps1) 与现有隧道方式 | 电脑睡眠、关机或网络变化会影响公网服务 |
 | 云端时间为估算，检索降级主要覆盖中文/英文 | [sensevoice.ts](../src/lib/sensevoice.ts)、[rag.ts](../src/lib/rag.ts) | 外语、数字、人名、否定词和精确引用需独立质量评测 |
 

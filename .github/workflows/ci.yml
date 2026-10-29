@@ -37,3 +37,7 @@ jobs:
         run: npm run test:security
       - name: 生产构建
         run: npm run build
+      - name: 安装浏览器测试依赖
+        run: python -m pip install playwright==1.61.0
+      - name: 隔离浏览器回归
+        run: npm run check:browser

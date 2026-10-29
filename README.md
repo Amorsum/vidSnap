@@ -174,7 +174,7 @@ Bilibili 部分媒体 CDN 使用 HTTPS 8082 端口；该端口仅对 `*.mcdn.bil
 
 ## 开发与验证
 
-N0 已开始：新增 Windows CI 工作流，执行 lint、类型、自动回归和构建；尚未推送或在 GitHub 验证。隔离浏览器自动入口及发布回滚检查仍待完成。
+N0 已开始：Windows CI 首次执行通过 lint、类型、自动回归和构建；新增 `npm run check:browser` 在独立副本运行三组浏览器回归，另有 [发布与回滚检查清单](docs/RELEASE_CHECKLIST.md)。包含浏览器检查的更新工作流尚待 GitHub 验证。
 
 日常开发、提交和推送统一使用 `main`；按用户明确授权提交发布。`demo` 和 `master` 保留历史，B 站接入已参考 `master` 旧实现并适配当前三平台架构，未整体合入旧版。
 
