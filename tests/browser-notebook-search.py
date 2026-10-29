@@ -112,7 +112,9 @@ async def main():
             await library.get_by_text("没有匹配的笔记", exact=False).wait_for()
             assert await search.get_attribute("maxlength") == "200"
             await library.get_by_role("button", name="清空搜索", exact=True).click()
-            assert await library.get_by_role("button", name="旧版笔记", exact=False).count() == 1
+            legacy_row = library.get_by_role("button", name=re.compile("^旧版笔记"))
+            await legacy_row.wait_for()
+            assert await legacy_row.count() == 1
             checks.append("忽略大小写、特殊字符字面匹配、HTML转义、清空与无结果")
 
             hit = await find("个人诀窍", "个人笔记")

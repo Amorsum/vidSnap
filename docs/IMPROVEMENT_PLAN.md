@@ -182,6 +182,7 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-10-29 | N0 浏览器断言稳定性 | GitHub CI 在清空搜索后的延后渲染上出现竞态，改为等待目标行出现；本机隔离浏览器 25 组复验通过。 | tests/browser-notebook-search.py | 🚧 重新验证 |
 | 2026-10-29 | N0 CI 编码修复 | 首次完整 CI 的浏览器入口因 Windows 默认编码失败；改用 UTF-8，本机 25 组浏览器检查复验通过，重新推送后验收。 | scripts/check-browser-isolated.py, docs/NEXT_PHASE_PLAN.md | 🚧 验证中 |
 | 2026-10-29 | N0 隔离浏览器与发布检查 | 首次 CI 已通过；新增三组隔离浏览器自动入口、故障清理演练和发布回滚清单，更新工作流待 GitHub 验证。 | scripts/check-browser-isolated.py, .github/workflows/ci.yml, docs/RELEASE_CHECKLIST.md | 🚧 验证中 |
 | 2026-10-29 | N0 CI 首批交付 | 本机 lint、类型和 316 项自动回归通过，提交 Windows CI 工作流；浏览器隔离入口及发布检查待完成。 | .github/workflows/ci.yml, docs/NEXT_PHASE_PLAN.md | 🚧 进行中 |
