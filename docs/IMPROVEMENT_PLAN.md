@@ -182,6 +182,7 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-10-29 | N0 CI 首批交付 | 本机 lint、类型和 316 项自动回归通过，提交 Windows CI 工作流；浏览器隔离入口及发布检查待完成。 | .github/workflows/ci.yml, docs/NEXT_PHASE_PLAN.md | 🚧 进行中 |
 | 2026-10-29 | 下一阶段计划交付 | 按授权提交优化路线与现状核对，下一步开始 N0 自动回归和发布检查。 | docs/NEXT_PHASE_PLAN.md, README.md, PRODUCT_PLAN.md | ✅ 已完成 |
 | 2026-10-29 | 下一阶段规划 | 全文搜索由 624893c 推送 main；确认学习闭环功能阶段完成，编制 N0—N4 的回归/发布、持久化、任务恢复、质量与部署路线和验收边界，修正旧计划现状。 | docs/NEXT_PHASE_PLAN.md, docs/OPTIMIZATION_PLAN.md, PRODUCT_PLAN.md | 📝 规划完成，实施未开始 |
 | 2026-10-29 | 全文搜索交付 | 按授权交付已部署的本地全文搜索及来源定位，核对 README、316 项自动/25 组浏览器记录与截图，保留无关协作配置。 | src/lib/notebook-search.ts, src/components/NotebookLibrary.tsx, docs/LEARNING_WORKSPACE.md | ✅ 已完成 |
