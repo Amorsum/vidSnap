@@ -5,6 +5,7 @@ import { readProcessResult, retryDeadline } from "../src/lib/process-stream";
 import type { StudyNote } from "../src/lib/learning-types";
 import { appendExcerpt, REVIEW_QUESTION, reviewAnswersQuestion, termQuestion } from "../src/lib/study-tools";
 import { PENDING_PROCESS_KEY, readPendingProcess, writePendingProcess } from "../src/lib/process-recovery";
+import { BACKUP_MAX_BYTES, BACKUP_MAX_NOTES, exportNotebook, parseNotebookBackup, planNotebookImport } from "../src/lib/notebook-backup";
 
 test("恢复线索只接受有效平台/格式/时间，不保存凭据且存储失败可降级", () => {
   const data = new Map<string, string>();
@@ -73,6 +74,77 @@ const fixture: StudyNote = {
     frames: [{ time: 3, description: "画面文字", src: "/api/frames?token=never-persist" }],
   }, turns: [{ id: 1, question: "问题", answer: "回答 [00:02]", status: "success" }, { id: 2, question: "失败问题", answer: "网络失败", status: "error" }, { id: 3, question: "未完成", answer: "", status: "pending" }],
 };
+
+function backupFixture(): StudyNote {
+  const note = durableNote(structuredClone(fixture));
+  note.analysis.video.id = "dQw4w9WgXcQ";
+  return note;
+}
+
+test("备份可完整恢复文字并剥离帧签名、图片与未知嵌套字段", () => {
+  const note = backupFixture();
+  Object.assign(note.analysis.video, { thumbnail: "https://private.example/image", token: "secret-field" });
+  Object.assign(note.analysis.result, { cookies: "secret-field" });
+  Object.assign(note.turns[0], { credential: "secret-field" });
+  note.analysis.frames[0].src = "/api/frames?token=never-persist";
+  const text = exportNotebook([note], 100);
+  const parsed = parseNotebookBackup(`\uFEFF${text}`);
+  assert.ok(!/secret-field|private\.example|never-persist/.test(text));
+  assert.equal(parsed[0].personalNote, note.personalNote);
+  assert.deepEqual(parsed[0].turns, durableNote(note).turns);
+  assert.equal(parsed[0].analysis.video.thumbnail, "");
+  assert.equal(note.analysis.video.thumbnail, "https://private.example/image");
+  assert.equal(parsed[0].analysis.canonicalUrl, "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=0s");
+});
+
+test("备份校验拒绝损坏、空文件、未知版本、过量笔记与伪造类型，不部分导入", () => {
+  const good = JSON.parse(exportNotebook([backupFixture()]));
+  for (const value of [null, [], {}, { ...good, version: 2 }, { ...good, notes: [] },
+    { ...good, notes: [...good.notes, { bad: true }] },
+    { ...good, notes: Array(BACKUP_MAX_NOTES + 1).fill(good.notes[0]) }]) {
+    assert.throws(() => parseNotebookBackup(JSON.stringify(value)));
+  }
+  assert.throws(() => parseNotebookBackup("{broken"), /JSON/);
+  assert.throws(() => parseNotebookBackup(" ".repeat(BACKUP_MAX_BYTES + 1)), /20 MiB/);
+  assert.throws(() => exportNotebook([]), /为空/);
+  assert.throws(() => exportNotebook(Array(BACKUP_MAX_NOTES + 1).fill(backupFixture())), /500/);
+  for (const change of [ { platform: ["youtube"] }, { framesExpireAt: "later" }, { video: { ...good.notes[0].analysis.video, id: "invalid" } } ]) {
+    const changed = structuredClone(good);
+    Object.assign(changed.notes[0].analysis, change);
+    assert.throws(() => parseNotebookBackup(JSON.stringify(changed)));
+  }
+});
+
+test("导入相同内容跳过，冲突保留副本，重复导入副本不膨胀，也不合并同视频的不同分析", () => {
+  const note = backupFixture();
+  const incoming = { ...note, lastViewedAt: 9000, updatedAt: 8000 };
+  incoming.analysis = { ...note.analysis, expiresAt: 5000 };
+  assert.equal(planNotebookImport([note], [incoming]).skipped, 1);
+  const conflict = { ...note, personalNote: "另一浏览器的修改" };
+  const plan = planNotebookImport([note], [conflict, conflict], () => "conflict-copy");
+  assert.equal(plan.added.length, 1);
+  assert.equal(plan.copies, 1);
+  assert.equal(plan.skipped, 1);
+  assert.equal(plan.added[0].id, "conflict-copy");
+  assert.equal(planNotebookImport([note, ...plan.added], [conflict]).skipped, 1);
+  assert.equal(note.personalNote, "我的理解");
+  const reanalysis = structuredClone(note);
+  reanalysis.id = "second-analysis";
+  reanalysis.analysis.analysisId = "22222222-2222-4222-8222-222222222222";
+  assert.equal(planNotebookImport([note], [reanalysis]).added.length, 1);
+  assert.throws(() => planNotebookImport([note], [conflict], () => note.id), /副本标识/);
+});
+
+test("旧笔记和B站分P备份兼容，恶意外链被重新构造", () => {
+  const note = backupFixture();
+  note.analysis.platform = "bilibili";
+  note.analysis.video.id = "BV1L3tA66EKt_p2";
+  note.analysis.canonicalUrl = "javascript:alert(1)";
+  delete note.excerpts;
+  const restored = parseNotebookBackup(exportNotebook([note]))[0];
+  assert.match(restored.analysis.canonicalUrl, /bilibili\.com\/video\/BV1L3tA66EKt\?p=2/);
+  assert.deepEqual(restored.excerpts, []);
+});
 
 test("持久化只保存文本及成功问答，不保存帧签名，不改变内存结果", () => {
   const saved = durableNote(fixture);

@@ -14,6 +14,8 @@
 
 当前无门禁三平台入口（2026-10-28）：[桌面截图](docs/screenshots/bilibili-home-desktop.png) · [手机截图](docs/screenshots/bilibili-home-mobile.png)。
 
+笔记备份与恢复（隔离测试数据，2026-10-29）：[桌面截图](docs/screenshots/notebook-backup-desktop.png) · [手机截图](docs/screenshots/notebook-backup-mobile.png)。
+
 以下为早期演示截图；新工作台的交互与验证范围见 [学习闭环说明](docs/LEARNING_WORKSPACE.md)。
 
 学习辅助界面（隔离测试数据）：[桌面截图](docs/screenshots/study-desktop.png) · [手机截图](docs/screenshots/study-mobile.png)。
@@ -27,6 +29,8 @@
 > 在线 Demo：<https://vidsnap.amorsum.top>（本地运行 + Cloudflare 隧道，电脑在线时可用）
 
 ## 功能特性
+
+2026-10-29 笔记库支持 JSON 备份与导入，可在另一浏览器恢复字幕、总结、个人笔记、摘录和问答。导入前预览，相同内容跳过，冲突保留副本，写入失败整批回滚；文件仅在浏览器内处理，不恢复服务器追问资格。单文件最多 20 MiB / 500 篇，详见 [备份说明](docs/LEARNING_WORKSPACE.md#笔记备份与导入)。
 
 2026-10-28 长视频转写增加分段处理：超过 5 分钟或音频超过 40 MiB 时按音频实际时长切成最多 5 分钟的片段，云端失败后对当前及后续片段降级本地 Whisper。云端时间仍为片段内估算；不保证精确对齐。真实短视频与约 41 分钟 B 站视频的文字链路验证及限制见 [长视频处理说明](docs/LONG_VIDEO.md)。
 

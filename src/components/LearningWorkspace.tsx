@@ -13,7 +13,7 @@ import ExcerptPanel from "./ExcerptPanel";
 import type { ExcerptDraft, StudyNote, StudyTurn } from "@/lib/learning-types";
 import { appendExcerpt, excerptKey, reviewAnswersQuestion } from "@/lib/study-tools";
 import { durableNote, exportMarkdown, formatTime, sourceUrl, transcriptionLabel, visionLabel } from "@/lib/learning";
-import { deleteNote, listNotes, saveNote } from "@/lib/notebook";
+import { deleteNote, importNotes, listNotes, saveNote } from "@/lib/notebook";
 import { ProcessStreamInterruptedError, readProcessResult, retryDeadline } from "@/lib/process-stream";
 import { readPendingProcess, writePendingProcess, type PendingProcess } from "@/lib/process-recovery";
 
@@ -279,6 +279,20 @@ export default function LearningWorkspace({ children }: Props) {
     link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
+  const restoreNotes = (incoming: StudyNote[]) => {
+    const operation = writeQueue.current.then(async () => {
+      const result = await importNotes(incoming);
+      // 导入等待期间仍可能编辑当前笔记，较旧的读取结果不能覆盖内存修改。
+      const merged = new Map(result.notes.map(item => [item.id, item]));
+      for (const item of savedNotes.current) merged.set(item.id, item);
+      savedNotes.current = [...merged.values()].sort((a, b) => b.lastViewedAt - a.lastViewedAt);
+      setNotes(savedNotes.current);
+      return { added: result.plan.added.length, skipped: result.plan.skipped, copies: result.plan.copies };
+    });
+    writeQueue.current = operation.then(() => {}, () => {});
+    return operation;
+  };
+
   const processWait = Math.max(0, Math.ceil((processRetryAt - now) / 1000));
   const askWait = Math.max(0, Math.ceil((askRetryAt - now) / 1000));
   return <main className="relative z-10 flex flex-1 flex-col items-center gap-5 px-4 pb-10 sm:px-8">
@@ -289,7 +303,7 @@ export default function LearningWorkspace({ children }: Props) {
     </section>
 
     <div className="w-full max-w-7xl text-sm text-muted"><span role="status">{storage}</span>{storageFailed && note && <button className="study-button ml-2" onClick={() => persist(note)}>重试保存</button>}</div>
-    <NotebookLibrary notes={notes} activeId={note?.id} disabled={loading || followUpLoading} onOpen={open} onDelete={remove} />
+    <NotebookLibrary notes={notes} activeId={note?.id} disabled={!notebookReady || loading || followUpLoading} onOpen={open} onDelete={remove} onImport={restoreNotes} />
 
       {pendingProcess && <section className="study-panel w-full max-w-3xl" aria-label="分析连接恢复">
         <p className="text-sm leading-6" role="status">{loading ? "刷新页面后会尝试找回这次分析。恢复连接只读取已有任务，不会启动新的分析。" : "这次分析尚未收到完整结果，可以尝试恢复连接。"}</p>

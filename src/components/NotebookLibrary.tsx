@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { StudyNote } from "@/lib/learning-types";
+import { BACKUP_MAX_BYTES, exportNotebook, parseNotebookBackup } from "@/lib/notebook-backup";
 
 interface Props {
   notes: StudyNote[];
@@ -9,24 +10,72 @@ interface Props {
   disabled: boolean;
   onOpen: (note: StudyNote) => void;
   onDelete: (id: string) => void;
+  onImport: (notes: StudyNote[]) => Promise<{ added: number; skipped: number; copies: number }>;
 }
 
-export default function NotebookLibrary({ notes, activeId, disabled, onOpen, onDelete }: Props) {
+export default function NotebookLibrary({ notes, activeId, disabled, onOpen, onDelete, onImport }: Props) {
   const [query, setQuery] = useState("");
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [pending, setPending] = useState<{ filename: string; notes: StudyNote[] } | null>(null);
+  const [message, setMessage] = useState("");
+  const [working, setWorking] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const blocked = disabled || working;
+  const backup = () => {
+    try {
+      const text = exportNotebook(notes);
+      const url = URL.createObjectURL(new Blob([text], { type: "application/json;charset=utf-8" }));
+      const link = document.createElement("a");
+      link.href = url; link.download = `vidsnap-notebook-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setMessage(`已生成 ${notes.length} 篇笔记的备份，请妥善保存下载文件。`);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "备份失败，请重试。"); }
+  };
+  const selectFile = async (file?: File) => {
+    setPending(null); setMessage("");
+    if (!file) return;
+    setWorking(true);
+    try {
+      if (file.size > BACKUP_MAX_BYTES) throw new Error("备份文件不能超过 20 MiB。");
+      setPending({ filename: file.name, notes: parseNotebookBackup(await file.text()) });
+    } catch (error) { setMessage(error instanceof Error ? error.message : "无法读取备份，请重新选择文件。"); }
+    finally { setWorking(false); }
+  };
+  const restore = async () => {
+    if (!pending || blocked) return;
+    setWorking(true); setMessage("正在导入，请保持页面打开…");
+    try {
+      const result = await onImport(pending.notes);
+      setMessage(`导入完成：新增 ${result.added} 篇，跳过重复 ${result.skipped} 篇${result.copies ? `，其中 ${result.copies} 篇以副本保留` : ""}。`);
+      setPending(null);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "导入失败，原有笔记已保留，请重试。"); }
+    finally { setWorking(false); }
+  };
   const filtered = notes.filter(n => n.analysis.video.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
     .sort((a, b) => b.lastViewedAt - a.lastViewedAt);
   return <details className="study-panel w-full max-w-7xl" open={!activeId || undefined}>
     <summary className="min-h-11 cursor-pointer text-base font-semibold">本地笔记库 · {notes.length} 篇</summary>
-    <p className="mt-2 text-sm leading-6 text-muted">仅保存在当前浏览器，清除网站数据后会丢失。建议定期导出备份；画面图片不长期保存。</p>
+    <p className="mt-2 text-sm leading-6 text-muted">仅保存在当前浏览器，清除网站数据后会丢失。备份包含字幕、笔记、摘录与问答，可在其他浏览器导入；不含画面图片。</p>
+    <div className="mt-3 flex flex-wrap gap-2">
+      <button type="button" className="study-button" disabled={blocked || !notes.length} onClick={backup}>备份全部笔记</button>
+      <button type="button" className="study-button" disabled={blocked} onClick={() => fileInput.current?.click()}>导入笔记备份</button>
+      <input ref={fileInput} type="file" accept=".json,application/json" className="hidden" aria-label="选择笔记备份文件" disabled={blocked} onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; void selectFile(file); }} />
+    </div>
+    {pending && <section className="mt-3 rounded-xl border border-line p-3" aria-label="确认笔记导入">
+      <p className="break-words text-sm leading-6">{pending.filename} · {pending.notes.length} 篇笔记</p>
+      <ul className="mt-1 text-sm leading-6 text-muted">{pending.notes.slice(0, 3).map((item, index) => <li className="break-words" key={index}>{item.analysis.video.title}</li>)}</ul>
+      <p className="mt-2 text-sm leading-6 text-muted">相同内容跳过，同一篇笔记有不同内容时保留为副本，不覆盖现有笔记。文件仅在浏览器内处理；导入不会恢复服务器上的追问资格。</p>
+      <div className="mt-3 flex flex-wrap gap-2"><button type="button" className="study-button" disabled={blocked} onClick={() => void restore()}>确认导入</button><button type="button" className="study-button" disabled={working} onClick={() => { setPending(null); setMessage(""); }}>取消导入</button></div>
+    </section>}
+    <p className="mt-2 break-words text-sm leading-6 text-muted" role="status">{working && !message ? "正在读取备份…" : message}</p>
     <label className="mt-4 block"><span className="sr-only">搜索笔记标题</span><input type="search" className="study-input" aria-label="搜索笔记标题" placeholder="搜索笔记标题" value={query} onChange={e => setQuery(e.target.value)} /></label>
     <div className="mt-3 max-h-72 overflow-y-auto divide-y divide-line">
       {filtered.map(note => <div key={note.id} className="flex flex-wrap items-center gap-2 py-3">
-        <button type="button" className="min-h-11 min-w-0 flex-1 text-left" disabled={disabled} onClick={() => onOpen(note)} aria-current={note.id === activeId ? "page" : undefined}>
+        <button type="button" className="min-h-11 min-w-0 flex-1 text-left" disabled={blocked} onClick={() => onOpen(note)} aria-current={note.id === activeId ? "page" : undefined}>
           <span className="block break-words font-medium text-ink">{note.analysis.video.title}{note.id === activeId ? " · 当前笔记" : ""}</span>
           <span className="mt-1 block text-sm text-muted">{new Date(note.lastViewedAt).toLocaleString("zh-CN")} · {note.turns.length} 条问答</span>
         </button>
-        {confirmId === note.id ? <><span className="text-sm">删除这篇本地笔记？</span><button className="study-button" disabled={disabled} onClick={() => { onDelete(note.id); setConfirmId(null); }}>确认删除</button><button className="study-button" onClick={() => setConfirmId(null)}>保留</button></> : <button className="study-button" disabled={disabled} onClick={() => setConfirmId(note.id)}>删除</button>}
+        {confirmId === note.id ? <><span className="text-sm">删除这篇本地笔记？</span><button className="study-button" disabled={blocked} onClick={() => { onDelete(note.id); setConfirmId(null); }}>确认删除</button><button className="study-button" onClick={() => setConfirmId(null)}>保留</button></> : <button className="study-button" disabled={blocked} onClick={() => setConfirmId(note.id)}>删除</button>}
       </div>)}
       {!filtered.length && <p className="py-5 text-sm text-muted">{notes.length ? "没有匹配的笔记，换个标题关键词试试。" : "成功分析视频后，笔记会自动保存在这里。"}</p>}
     </div>

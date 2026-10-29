@@ -1,5 +1,6 @@
 import type { StudyNote } from "./learning-types";
 import { durableNote, isStudyNote } from "./learning";
+import { planNotebookImport, type ImportPlan } from "./notebook-backup";
 
 const DATABASE = "vidsnap-notebook";
 const STORE = "notes";
@@ -38,4 +39,32 @@ export async function saveNote(note: StudyNote): Promise<void> {
 
 export async function deleteNote(id: string): Promise<void> {
   await transaction("readwrite", store => store.delete(id));
+}
+
+/** 同一个读写事务内核对最新数据并写入；配额不足等错误会整体回滚。 */
+export async function importNotes(incoming: StudyNote[]): Promise<{ notes: StudyNote[]; plan: ImportPlan }> {
+  const database = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = database.transaction(STORE, "readwrite");
+    const store = tx.objectStore(STORE);
+    const request = store.getAll();
+    let result: { notes: StudyNote[]; plan: ImportPlan };
+    let failure: unknown;
+    request.onsuccess = () => {
+      try {
+        const existing: unknown[] = request.result;
+        if (!existing.every(isStudyNote)) throw new Error("现有笔记格式不兼容，已保留原始数据。");
+        const plan = planNotebookImport(existing, incoming);
+        for (const note of plan.added) store.add(note);
+        result = { notes: [...existing, ...plan.added].sort((a, b) => b.lastViewedAt - a.lastViewedAt), plan };
+      } catch (error) {
+        failure = error instanceof Error && error.name === "QuotaExceededError"
+          ? new Error("导入保存失败，浏览器空间不足。原笔记未改变，请释放空间后重试。") : error;
+        tx.abort();
+      }
+    };
+    tx.oncomplete = () => { database.close(); resolve(result); };
+    tx.onabort = () => { database.close(); reject(failure ?? new Error("导入保存失败，可能是浏览器空间不足。原笔记未改变，请重试。")); };
+    tx.onerror = () => { /* 由 abort 统一处理，不能报告部分成功。 */ };
+  });
 }

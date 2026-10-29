@@ -3,9 +3,10 @@ import type { AnalysisResult, StudyNote, SummaryResult, VisionMetadata } from ".
 import { EXCERPT_LABELS } from "./study-tools";
 
 function object(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function time(value: unknown): value is number { return typeof value === "number" && Number.isFinite(value) && value >= 0; }
+function oneOf(value: unknown, options: string[]): boolean { return typeof value === "string" && options.includes(value); }
 
 export function isSummaryResult(value: unknown): value is SummaryResult {
   return object(value) && typeof value.overall === "string" && !!value.overall.trim()
@@ -17,16 +18,17 @@ export function isSummaryResult(value: unknown): value is SummaryResult {
 
 export function isAnalysisResult(value: unknown): value is AnalysisResult {
   if (!object(value) || typeof value.analysisId !== "string" || !/^[a-f0-9-]{36}$/.test(value.analysisId)
-    || !["youtube", "douyin", "bilibili"].includes(String(value.platform)) || typeof value.canonicalUrl !== "string"
+    || !oneOf(value.platform, ["youtube", "douyin", "bilibili"]) || typeof value.canonicalUrl !== "string"
+    || (value.framesExpireAt !== undefined && !time(value.framesExpireAt))
     || !time(value.expiresAt) || !object(value.video) || !isSummaryResult(value.result)) return false;
   const v = value.video;
   if (typeof v.id !== "string" || typeof v.title !== "string" || !time(v.duration)
     || typeof v.thumbnail !== "string" || typeof v.uploader !== "string") return false;
   if (value.platform === "bilibili" && !/^(BV[A-Za-z0-9]{10}|av[1-9]\d{0,19})_p([1-9]\d{0,4})$/.test(v.id)) return false;
-  return ["builtin", "whisper"].includes(String(value.transcriptSource)) && typeof value.transcriptText === "string"
-    && object(value.transcription) && ["builtin", "sensevoice", "whisper", "unknown"].includes(String(value.transcription.provider))
-    && ["source", "estimated", "unknown"].includes(String(value.transcription.timing))
-    && object(value.vision) && ["completed", "partial", "budget_exhausted", "failed", "disabled", "unavailable", "unknown"].includes(String(value.vision.outcome))
+  return oneOf(value.transcriptSource, ["builtin", "whisper"]) && typeof value.transcriptText === "string"
+    && object(value.transcription) && oneOf(value.transcription.provider, ["builtin", "sensevoice", "whisper", "unknown"])
+    && oneOf(value.transcription.timing, ["source", "estimated", "unknown"])
+    && object(value.vision) && oneOf(value.vision.outcome, ["completed", "partial", "budget_exhausted", "failed", "disabled", "unavailable", "unknown"])
     && time(value.vision.describedFrames) && time(value.vision.totalFrames)
     && Array.isArray(value.transcriptSegments) && value.transcriptSegments.every(s => object(s) && time(s.start) && time(s.end)
       && s.end >= s.start && typeof s.text === "string")
@@ -68,24 +70,28 @@ export function durableNote(note: StudyNote): StudyNote {
   const a = note.analysis;
   return { id: note.id, version: 1, analysis: {
     analysisId: a.analysisId, platform: a.platform, canonicalUrl: sourceUrl(a), expiresAt: a.expiresAt,
-    framesExpireAt: a.framesExpireAt, video: { ...a.video }, transcriptSource: a.transcriptSource,
-    transcription: { ...a.transcription }, vision: { ...a.vision }, transcriptText: a.transcriptText,
-    transcriptSegments: a.transcriptSegments.map(s => ({ ...s })), result: a.result,
+    framesExpireAt: a.framesExpireAt, video: { id: a.video.id, title: a.video.title, duration: a.video.duration, thumbnail: a.video.thumbnail, uploader: a.video.uploader }, transcriptSource: a.transcriptSource,
+    transcription: { provider: a.transcription.provider, timing: a.transcription.timing },
+    vision: { outcome: a.vision.outcome, describedFrames: a.vision.describedFrames, totalFrames: a.vision.totalFrames }, transcriptText: a.transcriptText,
+    transcriptSegments: a.transcriptSegments.map(s => ({ start: s.start, end: s.end, text: s.text })),
+    result: { overall: a.result.overall, videoType: a.result.videoType, segments: a.result.segments.map(s => ({
+      title: s.title, start: s.start, end: s.end, points: s.points.map(p => ({ time: p.time, text: p.text })),
+    })) },
     frames: a.frames.map(f => ({ time: f.time, description: f.description })),
-  }, turns: note.turns.filter(t => t.status === "success").map(t => ({ ...t })),
-  personalNote: note.personalNote, excerpts: (note.excerpts ?? []).map(item => ({ ...item })), createdAt: note.createdAt, updatedAt: note.updatedAt, lastViewedAt: note.lastViewedAt };
+  }, turns: note.turns.filter(t => t.status === "success").map(t => ({ id: t.id, question: t.question, answer: t.answer, status: t.status, purpose: t.purpose, toolsUsed: t.toolsUsed?.slice() })),
+  personalNote: note.personalNote, excerpts: (note.excerpts ?? []).map(item => ({ id: item.id, kind: item.kind, text: item.text, start: item.start, end: item.end, createdAt: item.createdAt })), createdAt: note.createdAt, updatedAt: note.updatedAt, lastViewedAt: note.lastViewedAt };
 }
 
 export function isStudyNote(value: unknown): value is StudyNote {
   return object(value) && value.version === 1 && typeof value.id === "string" && isAnalysisResult(value.analysis)
     && typeof value.personalNote === "string" && time(value.createdAt) && time(value.updatedAt) && time(value.lastViewedAt)
-    && Array.isArray(value.turns) && value.turns.every(t => object(t) && typeof t.id === "number"
+    && Array.isArray(value.turns) && value.turns.every(t => object(t) && time(t.id)
       && typeof t.question === "string" && typeof t.answer === "string" && t.status === "success"
-      && (t.purpose === undefined || ["question", "term", "review", "review_answers"].includes(String(t.purpose)))
+      && (t.purpose === undefined || oneOf(t.purpose, ["question", "term", "review", "review_answers"]))
       && (t.toolsUsed === undefined || (Array.isArray(t.toolsUsed) && t.toolsUsed.every(tool => typeof tool === "string"))))
     && (value.excerpts === undefined || (Array.isArray(value.excerpts) && value.excerpts.every(item => object(item)
       && typeof item.id === "string" && typeof item.text === "string" && !!item.text.trim()
-      && ["transcript", "summary", "answer"].includes(String(item.kind)) && time(item.createdAt)
+      && oneOf(item.kind, ["transcript", "summary", "answer"]) && time(item.createdAt)
       && (item.start === undefined || time(item.start))
       && (item.end === undefined || (time(item.end) && time(item.start) && item.end >= item.start)))));
 }
