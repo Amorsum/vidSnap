@@ -18,6 +18,8 @@
 
 章节进度与复习（隔离测试数据，2026-10-29）：[桌面截图](docs/screenshots/learning-progress-desktop.png) · [手机截图](docs/screenshots/learning-progress-mobile.png)。
 
+笔记全文搜索（隔离测试数据，2026-10-29）：[桌面截图](docs/screenshots/notebook-search-desktop.png) · [手机截图](docs/screenshots/notebook-search-mobile.png)。
+
 以下为早期演示截图；新工作台的交互与验证范围见 [学习闭环说明](docs/LEARNING_WORKSPACE.md)。
 
 学习辅助界面（隔离测试数据）：[桌面截图](docs/screenshots/study-desktop.png) · [手机截图](docs/screenshots/study-mobile.png)。
@@ -31,6 +33,8 @@
 > 在线 Demo：<https://vidsnap.amorsum.top>（本地运行 + Cloudflare 隧道，电脑在线时可用）
 
 ## 功能特性
+
+2026-10-29 笔记库新增本地全文搜索：可检索标题、总结、字幕、个人笔记、摘录和成功问答，显示来源与命中片段，点击可定位原文时间、个人笔记或对应对话。支持与学习状态组合筛选，搜索不调用模型、不上传搜索词，详见 [全文搜索说明](docs/LEARNING_WORKSPACE.md#笔记库全文搜索)。
 
 2026-10-29 新增章节学习进度与手动复习记录：逐章勾选、按待学习／学习中／已学完筛选笔记，记录复习次数和最近日期。支持本地保存、JSON 备份恢复及 Markdown 导出；不依赖在线追问资格。详见 [学习记录说明](docs/LEARNING_WORKSPACE.md#学习进度与复习记录)。
 

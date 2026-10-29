@@ -18,6 +18,7 @@ import { deleteNote, importNotes, listNotes, saveNote } from "@/lib/notebook";
 import { ProcessStreamInterruptedError, readProcessResult, retryDeadline } from "@/lib/process-stream";
 import { readPendingProcess, writePendingProcess, type PendingProcess } from "@/lib/process-recovery";
 import { recordReview, toggleChapter } from "@/lib/learning-progress";
+import type { NotebookMatch } from "@/lib/notebook-search";
 
 interface Props { children: ReactNode }
 type Tab = "summary" | "transcript" | "chat";
@@ -50,6 +51,7 @@ export default function LearningWorkspace({ children }: Props) {
   const [askRetryAt, setAskRetryAt] = useState(0);
   const [tab, setTab] = useState<Tab>("summary");
   const [selection, setSelection] = useState<{ time: number; sequence: number } | null>(null);
+  const [notebookTarget, setNotebookTarget] = useState<{ noteId: string; match: NotebookMatch } | null>(null);
   const [followUpLoading, setFollowUpLoading] = useState(false);
   const asking = useRef(false);
   const [availability, setAvailability] = useState<"checking" | "available" | "unavailable" | "network">("checking");
@@ -143,6 +145,17 @@ export default function LearningWorkspace({ children }: Props) {
     showNote(next);
     persist(next);
   }, [persist, showNote]);
+
+  useEffect(() => {
+    if (!notebookTarget || notebookTarget.noteId !== note?.id) return;
+    const { match } = notebookTarget;
+    const id = match.kind === "personal" ? "personal-note" : match.turnId !== undefined ? `study-turn-${match.turnId}`
+      : match.kind === "excerpt" && match.start === undefined ? "excerpts-heading" : match.kind === "transcript" || match.start !== undefined ? "transcript-heading" : "panel-summary";
+    const target = document.getElementById(id);
+    target?.scrollIntoView({ block: "center", behavior: "auto" });
+    target?.focus({ preventScroll: true });
+    if (target instanceof HTMLTextAreaElement) target.setSelectionRange(match.at, match.at + match.matched.length);
+  }, [notebookTarget, note?.id]);
 
   const savePending = useCallback((pending: PendingProcess | null) => {
     setPendingProcess(pending);
@@ -254,10 +267,12 @@ export default function LearningWorkspace({ children }: Props) {
     else setStudyMessage("这组题目过长，请选择其中一题继续追问。");
   };
 
-  const open = (saved: StudyNote) => {
+  const open = (saved: StudyNote, match?: NotebookMatch) => {
     if (busy.current || asking.current) return;
     const next = { ...saved, lastViewedAt: Date.now() };
-    showNote(next); persist(next); setAvailability("checking"); setTab("summary"); setSelection(null); setError(""); setLastUrl("");
+    showNote(next); persist(next); setAvailability("checking"); setTab(match?.turnId !== undefined ? "chat" : match?.kind === "transcript" || match?.start !== undefined ? "transcript" : "summary");
+    setSelection(match?.start === undefined ? null : { time: match.start, sequence: Date.now() });
+    setNotebookTarget(match ? { noteId: saved.id, match } : null); setError(""); setLastUrl("");
     setStatusVersion(version => version + 1);
     setStudyMessage("");
   };
@@ -348,7 +363,7 @@ export default function LearningWorkspace({ children }: Props) {
 
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className={`min-w-0 ${tab === "chat" ? "hidden xl:block" : ""}`}>
-          <div id="panel-summary" role="tabpanel" aria-labelledby="tab-summary" hidden={tab === "transcript"}>
+          <div id="panel-summary" role="tabpanel" tabIndex={-1} aria-labelledby="tab-summary" hidden={tab === "transcript"}>
             <ResultPanel key={note.id} video={note.analysis.video} result={note.analysis.result} transcriptSource={note.analysis.transcriptSource} frames={note.analysis.frames.map(f => ({ ...f, src: (note.analysis.framesExpireAt ?? 0) > now ? f.src : undefined }))} onReference={reference} canAsk={canAsk && askWait === 0} onExplain={(start, end, title) => void ask(`请解释 ${formatTime(start)} 到 ${formatTime(end)} 的「${title}」，基于该段原文说明核心概念，并引用时间。`)} onExcerpt={addExcerpt} excerptKeys={excerptKeys} />
             <ExcerptPanel excerpts={note.excerpts ?? []} onReference={reference} onRemove={id => update(value => ({ ...value, excerpts: value.excerpts?.filter(item => item.id !== id), updatedAt: Date.now() }))} />
             <section className="study-panel mt-4"><label htmlFor="personal-note" className="text-base font-semibold">我的笔记</label><p className="mb-3 mt-2 text-sm text-muted">写下你的理解、疑问或下一步行动。</p><textarea id="personal-note" className="study-input min-h-40 resize-y" value={note.personalNote} placeholder="这段视频对我有什么启发？" onChange={e => update(value => ({ ...value, personalNote: e.target.value, updatedAt: Date.now() }))} /></section>

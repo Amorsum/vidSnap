@@ -162,7 +162,7 @@ interface TurnItemProps {
 // memo：追问 loading 等父级状态变化时，未更新的历史问答不重渲染（含正则拆分）
 const TurnItem = memo(function TurnItem({ turn, onReference, onExcerpt, excerptKeys, onReviewAnswers, canAsk }: TurnItemProps) {
   return (
-    <div className="space-y-3 animate-rise-in">
+    <div id={`study-turn-${turn.id}`} tabIndex={-1} className="space-y-3 animate-rise-in">
       <div className="flex justify-end">
         <div className="max-w-[88%] rounded-2xl rounded-br-md bg-brand px-3.5 py-2.5 shadow-[0_6px_16px_rgba(99,91,255,.16)]">
           <p className="text-sm leading-6 text-white">{turn.question}</p>

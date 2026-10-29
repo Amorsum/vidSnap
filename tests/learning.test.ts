@@ -7,6 +7,7 @@ import { appendExcerpt, REVIEW_QUESTION, reviewAnswersQuestion, termQuestion } f
 import { PENDING_PROCESS_KEY, readPendingProcess, writePendingProcess } from "../src/lib/process-recovery";
 import { BACKUP_MAX_BYTES, BACKUP_MAX_NOTES, exportNotebook, parseNotebookBackup, planNotebookImport } from "../src/lib/notebook-backup";
 import { isLearningProgress, learningProgressLabel, learningStatus, recordReview, toggleChapter } from "../src/lib/learning-progress";
+import { NOTEBOOK_QUERY_LIMIT, notebookSnippet, searchNotebook } from "../src/lib/notebook-search";
 
 test("恢复线索只接受有效平台/格式/时间，不保存凭据且存储失败可降级", () => {
   const data = new Map<string, string>();
@@ -81,6 +82,79 @@ function backupFixture(): StudyNote {
   note.analysis.video.id = "dQw4w9WgXcQ";
   return note;
 }
+
+test("笔记全文搜索覆盖七种来源并保留字幕时间和问答定位", () => {
+  const note = backupFixture();
+  note.analysis.video.title = "标题线索";
+  note.personalNote = "笔记线索";
+  note.excerpts = [{ id: "excerpt", kind: "summary", text: "摘录线索", start: 4, createdAt: 1 }];
+  note.turns = [{ id: 9, question: "问题线索", answer: "回答线索", status: "success" }];
+  note.analysis.result.overall = "总结线索";
+  note.analysis.transcriptSegments = [{ start: 42, end: 45, text: "字幕线索" }];
+  for (const [query, kind] of [["标题线索", "title"], ["笔记线索", "personal"], ["摘录线索", "excerpt"],
+    ["问题线索", "question"], ["回答线索", "answer"], ["总结线索", "summary"], ["字幕线索", "transcript"]]) {
+    const match = searchNotebook([note], query)[0].matches[0];
+    assert.equal(match.kind, kind);
+    assert.equal(match.matched, query);
+  }
+  assert.equal(searchNotebook([note], "字幕线索")[0].matches[0].start, 42);
+  assert.equal(searchNotebook([note], "回答线索")[0].matches[0].turnId, 9);
+  assert.equal(note.analysis.expiresAt, 1000, "本地搜索不延长或依赖在线期限");
+});
+
+test("全文搜索按短语逐来源匹配，忽略大小写，正则元字符仅作原文", () => {
+  const note = backupFixture();
+  note.personalNote = "Learn RAG with a+b? [tag] (test).* $ ^ {1} | \\";
+  for (const query of ["rag", " a+b? ", "[tag]", "(test).*", "$ ^ {1} | \\"]) {
+    assert.equal(searchNotebook([note], query).length, 1, query);
+  }
+  assert.equal(searchNotebook([note], "R.G").length, 0);
+  note.personalNote = "第一段";
+  note.analysis.result.overall = "第二段";
+  assert.equal(searchNotebook([note], "第一段第二段").length, 0);
+});
+
+test("搜索排除失败/未完成问答，空查询保留列表，限制长度和每篇命中数", () => {
+  const note = backupFixture();
+  note.turns.push({ id: 99, question: "不可搜索失败", answer: "不可搜索失败", status: "error" },
+    { id: 100, question: "不可搜索待定", answer: "不可搜索待定", status: "pending" });
+  assert.equal(searchNotebook([note], "不可搜索").length, 0);
+  assert.equal(searchNotebook([note], " ")[0].note, note);
+  assert.deepEqual(searchNotebook([note], " ")[0].matches, []);
+  assert.deepEqual(searchNotebook([note], "a".repeat(NOTEBOOK_QUERY_LIMIT + 1)), []);
+  note.analysis.video.title = "共同线索";
+  note.personalNote = "共同线索";
+  note.analysis.result.overall = "共同线索";
+  note.analysis.transcriptSegments[0].text = "共同线索";
+  assert.equal(searchNotebook([note], "共同线索")[0].matches.length, 3);
+});
+
+test("命中片段保留原始大小写、Unicode及特殊字符，长字幕尾部也能找到", () => {
+  const note = backupFixture();
+  note.personalNote = "😀".repeat(50) + "<img onerror=alert(1)> RaG " + "😀".repeat(90);
+  const match = searchNotebook([note], "rag")[0].matches[0];
+  const snippet = notebookSnippet(match);
+  assert.equal(snippet.matched, "RaG");
+  assert.ok(snippet.before.startsWith("…"));
+  assert.ok(snippet.after.endsWith("…"));
+  assert.ok(snippet.before.includes("<img"));
+  assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(snippet.before + snippet.after));
+  note.analysis.transcriptSegments[0].text = "长字幕".repeat(80_000) + "末尾检索词";
+  assert.equal(searchNotebook([note], "末尾检索词")[0].matches[0].kind, "transcript");
+});
+
+test("无分段旧笔记可搜索全文，重复来源不占满命中位置，输入笔记不变", () => {
+  const note = backupFixture();
+  note.analysis.transcriptSegments = [];
+  note.analysis.transcriptText = "旧全文线索";
+  const before = JSON.stringify(note);
+  const match = searchNotebook([note], "旧全文线索")[0].matches[0];
+  assert.equal(match.start, undefined);
+  assert.equal(match.kind, "transcript");
+  assert.equal(JSON.stringify(note), before);
+  note.excerpts = [1, 2].map(id => ({ id: String(id), kind: "answer", text: "相同线索", createdAt: 1 }));
+  assert.equal(searchNotebook([note], "相同线索")[0].matches.length, 1);
+});
 
 test("旧笔记默认为待学习，逐章完成和取消正确改变状态且不修改原对象", () => {
   const note = backupFixture();

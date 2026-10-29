@@ -57,7 +57,10 @@ export default function TranscriptPanel({ analysis, selection, onExcerpt, excerp
         <p className="text-base leading-7 text-ink">{highlight(s.text, needle)}</p>
         {onExcerpt && <button type="button" className="study-button mt-2" disabled={excerptKeys?.has(excerptKey({ kind: "transcript", text: s.text, start: s.start, end: s.end }))} onClick={() => onExcerpt({ kind: "transcript", text: s.text, start: s.start, end: s.end })}>{excerptKeys?.has(excerptKey({ kind: "transcript", text: s.text, start: s.start, end: s.end })) ? "已摘录" : "摘录原文"}</button>}
       </div>)}
-      {!rows.length && <p className="py-8 text-sm text-muted">{needle ? "换一个关键词试试。" : "本次没有可用字幕。"}</p>}
+      {!analysis.transcriptSegments.length && analysis.transcriptText.trim() ? <div className="rounded-xl bg-surface-soft p-3">
+        <p className="mb-2 text-sm text-muted">此笔记仅保留字幕全文，没有分段时间，无法按秒定位。</p>
+        <p className="whitespace-pre-wrap break-words text-base leading-7">{highlight(analysis.transcriptText, needle)}</p>
+      </div> : !rows.length && <p className="py-8 text-sm text-muted">{needle ? "换一个关键词试试。" : "本次没有可用字幕。"}</p>}
       {rows.length > count && <button className="study-button w-full" onClick={() => setLimit(count + 200)}>显示更多字幕</button>}
     </div>
   </section>;

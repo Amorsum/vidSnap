@@ -179,6 +179,8 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-10-29 | 全文搜索交付 | 按授权交付已部署的本地全文搜索及来源定位，核对 README、316 项自动/25 组浏览器记录与截图，保留无关协作配置。 | src/lib/notebook-search.ts, src/components/NotebookLibrary.tsx, docs/LEARNING_WORKSPACE.md | ✅ 已完成 |
+| 2026-10-29 | 笔记全文搜索 | 七类来源字面检索、命中片段与原文/个人笔记/问答定位；316 项回归、25 组浏览器检查及构建通过，保留旧构建后部署，公网实际搜索通过；上一批学习记录由 454aec0 推送 main。 | src/lib/notebook-search.ts, src/components/NotebookLibrary.tsx, docs/LEARNING_WORKSPACE.md | ✅ 已部署，接续改动未提交 |
 | 2026-10-29 | 学习记录交付 | 按授权提交已部署的章节进度与复习记录，核对 README、截图和 311 项自动/17 组浏览器验证说明，保留无关协作配置。 | src/components/LearningProgressPanel.tsx, src/lib/learning-progress.ts, docs/LEARNING_WORKSPACE.md | ✅ 已完成 |
 | 2026-10-29 | 学习进度与复习 | 章节标记、状态筛选、复习次数/日期与导出备份兼容；311 项自动回归、17 组浏览器检查及构建通过，备份旧构建后重启并验收本机/公网交互；上一批备份由 1f8d4be 推送 main。 | src/lib/learning-progress.ts, src/components/LearningProgressPanel.tsx, docs/LEARNING_WORKSPACE.md | ✅ 已部署，接续改动未提交 |
 | 2026-10-29 | 笔记恢复交付 | 按授权交付已验证的笔记备份与恢复，核对 README、补充桌面/手机截图及交接说明，保留无关协作配置。 | README.md, docs/screenshots/, docs/LEARNING_WORKSPACE.md | ✅ 已完成 |
