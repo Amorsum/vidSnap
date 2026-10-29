@@ -1,6 +1,7 @@
 import { videoSourceUrl } from "./url-utils";
 import type { AnalysisResult, StudyNote, SummaryResult, VisionMetadata } from "./learning-types";
 import { EXCERPT_LABELS } from "./study-tools";
+import { copyLearningProgress, isLearningProgress, learningProgressLabel, learningStatus, LEARNING_STATUS_LABELS } from "./learning-progress";
 
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -79,12 +80,13 @@ export function durableNote(note: StudyNote): StudyNote {
     })) },
     frames: a.frames.map(f => ({ time: f.time, description: f.description })),
   }, turns: note.turns.filter(t => t.status === "success").map(t => ({ id: t.id, question: t.question, answer: t.answer, status: t.status, purpose: t.purpose, toolsUsed: t.toolsUsed?.slice() })),
-  personalNote: note.personalNote, excerpts: (note.excerpts ?? []).map(item => ({ id: item.id, kind: item.kind, text: item.text, start: item.start, end: item.end, createdAt: item.createdAt })), createdAt: note.createdAt, updatedAt: note.updatedAt, lastViewedAt: note.lastViewedAt };
+  personalNote: note.personalNote, excerpts: (note.excerpts ?? []).map(item => ({ id: item.id, kind: item.kind, text: item.text, start: item.start, end: item.end, createdAt: item.createdAt })), learning: copyLearningProgress(note.learning), createdAt: note.createdAt, updatedAt: note.updatedAt, lastViewedAt: note.lastViewedAt };
 }
 
 export function isStudyNote(value: unknown): value is StudyNote {
   return object(value) && value.version === 1 && typeof value.id === "string" && isAnalysisResult(value.analysis)
     && typeof value.personalNote === "string" && time(value.createdAt) && time(value.updatedAt) && time(value.lastViewedAt)
+    && (value.learning === undefined || isLearningProgress(value.learning, value.analysis.result.segments.length))
     && Array.isArray(value.turns) && value.turns.every(t => object(t) && time(t.id)
       && typeof t.question === "string" && typeof t.answer === "string" && t.status === "success"
       && (t.purpose === undefined || oneOf(t.purpose, ["question", "term", "review", "review_answers"]))
@@ -103,9 +105,14 @@ export function exportMarkdown(note: StudyNote, includeTranscript: boolean): str
   const lines = [`# ${plain(a.video.title)}`, "", `原视频：${sourceUrl(a)}`, `作者：${plain(a.video.uploader || "未知作者")}`,
     `时长：${formatTime(a.video.duration)}`, `字幕来源：${transcriptionLabel(a)}`,
     `时间引用：${a.transcription.timing === "estimated" ? "估算时间，仅供定位参考" : a.transcription.timing === "source" ? "来自字幕或识别结果，可能存在偏差" : "精度未知"}`,
-    `画面：${visionLabel(a.vision)}`, "", "## 一句话理解", "", plain(a.result.overall)];
-  for (const segment of a.result.segments) {
+    `画面：${visionLabel(a.vision)}`, "", "## 学习记录", "",
+    `学习状态：${LEARNING_STATUS_LABELS[learningStatus(note)]} · ${learningProgressLabel(note)}`,
+    `复习次数：${note.learning?.reviewCount ?? 0}`,
+    `最近复习：${note.learning?.lastReviewedAt ? new Date(note.learning.lastReviewedAt).toISOString() : "尚未记录"}`,
+    "", "## 一句话理解", "", plain(a.result.overall)];
+  for (const [index, segment] of a.result.segments.entries()) {
     lines.push("", `## ${plain(segment.title)}（${formatTime(segment.start)}—${formatTime(segment.end)}）`, "");
+    lines.push(`学习标记：${note.learning?.completedChapters.includes(index) ? "已学" : "未标记"}`, "");
     for (const p of segment.points) lines.push(`- [${plain(p.time)}] ${plain(p.text)}`);
   }
   if (a.frames.length) { lines.push("", "## 画面依据", ""); for (const f of a.frames) lines.push(`- [${formatTime(f.time)}] ${plain(f.description)}`); }

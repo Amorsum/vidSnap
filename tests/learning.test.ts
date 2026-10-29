@@ -6,6 +6,7 @@ import type { StudyNote } from "../src/lib/learning-types";
 import { appendExcerpt, REVIEW_QUESTION, reviewAnswersQuestion, termQuestion } from "../src/lib/study-tools";
 import { PENDING_PROCESS_KEY, readPendingProcess, writePendingProcess } from "../src/lib/process-recovery";
 import { BACKUP_MAX_BYTES, BACKUP_MAX_NOTES, exportNotebook, parseNotebookBackup, planNotebookImport } from "../src/lib/notebook-backup";
+import { isLearningProgress, learningProgressLabel, learningStatus, recordReview, toggleChapter } from "../src/lib/learning-progress";
 
 test("恢复线索只接受有效平台/格式/时间，不保存凭据且存储失败可降级", () => {
   const data = new Map<string, string>();
@@ -80,6 +81,73 @@ function backupFixture(): StudyNote {
   note.analysis.video.id = "dQw4w9WgXcQ";
   return note;
 }
+
+test("旧笔记默认为待学习，逐章完成和取消正确改变状态且不修改原对象", () => {
+  const note = backupFixture();
+  note.analysis.result.segments.push({ title: "第二章", start: 5, end: 10, points: [] });
+  assert.equal(learningStatus(note), "unstarted");
+  assert.equal(learningProgressLabel(note), "已学 0/2 章节");
+  const first = toggleChapter(note, 1, 100);
+  assert.equal(learningStatus(first), "in_progress");
+  assert.deepEqual(first.learning?.completedChapters, [1]);
+  const done = toggleChapter(first, 0, 200);
+  assert.equal(learningStatus(done), "completed");
+  assert.deepEqual(done.learning?.completedChapters, [0, 1]);
+  assert.equal(learningStatus(toggleChapter(done, 1, 300)), "in_progress");
+  assert.equal(note.learning, undefined);
+  assert.deepEqual(first.learning?.completedChapters, [1]);
+  assert.equal(done.updatedAt, 200);
+  assert.ok(isStudyNote(durableNote(done)));
+});
+
+test("学习进度拒绝越界、重复、非整数索引，无章节不误报学完", () => {
+  const note = backupFixture();
+  for (const index of [-1, 1, 0.5, NaN]) assert.equal(toggleChapter(note, index), note);
+  for (const completedChapters of [[0, 0], [-1], [1], [0.5], ["0"]]) {
+    assert.equal(isLearningProgress({ completedChapters, reviewCount: 0 }, 1), false);
+  }
+  note.analysis.result.segments = [];
+  assert.equal(learningStatus(note), "unstarted");
+  assert.equal(learningProgressLabel(note), "已学 0/0 章节");
+});
+
+test("手动复习按次累计，保留章节和笔记，非法时间不产生记录", () => {
+  const note = toggleChapter(backupFixture(), 0, 100);
+  const reviewed = recordReview(recordReview(note, 200), 300);
+  assert.equal(reviewed.learning?.reviewCount, 2);
+  assert.equal(reviewed.learning?.lastReviewedAt, 300);
+  assert.deepEqual(reviewed.learning?.completedChapters, [0]);
+  assert.equal(reviewed.personalNote, note.personalNote);
+  assert.equal(note.learning?.reviewCount, 0);
+  for (const time of [-1, 0, NaN, Infinity, 9e15]) assert.equal(recordReview(note, time), note);
+});
+
+test("学习记录参与格式校验，损坏备份整份拒绝，空记录兼容旧备份去重", () => {
+  const note = backupFixture();
+  const good = { completedChapters: [], reviewCount: 0 };
+  assert.ok(isLearningProgress(good, 1));
+  assert.equal(planNotebookImport([note], [{ ...note, learning: good }]).skipped, 1);
+  for (const learning of [null, [], { ...good, reviewCount: -1 }, { ...good, reviewCount: 0.5 },
+    { ...good, reviewCount: Number.MAX_SAFE_INTEGER + 1 }, { ...good, reviewCount: 1 }, { ...good, lastReviewedAt: 100 }, { ...good, lastReviewedAt: "today" },
+    { ...good, lastReviewedAt: 9e15 }, { ...good, completedChapters: [2] }]) {
+    const broken = { ...note, learning };
+    assert.ok(!isStudyNote(broken));
+    assert.throws(() => parseNotebookBackup(JSON.stringify({ format: "vidsnap-notebook", version: 1, notes: [note, broken] })));
+  }
+});
+
+test("学习进度与复习保留在备份和Markdown中，进度差异按冲突副本处理", () => {
+  const original = backupFixture();
+  const note = recordReview(toggleChapter(original, 0), 1793200000000);
+  const restored = parseNotebookBackup(exportNotebook([note]))[0];
+  assert.deepEqual(restored.learning, note.learning);
+  const markdown = exportMarkdown(restored, false);
+  for (const text of ["## 学习记录", "已学完", "已学 1/1 章节", "复习次数：1", "学习标记：已学", new Date(1793200000000).toISOString()]) assert.ok(markdown.includes(text), text);
+  const plan = planNotebookImport([original], [restored], () => "progress-copy");
+  assert.equal(plan.copies, 1);
+  assert.equal(plan.added[0].learning?.reviewCount, 1);
+  assert.equal(planNotebookImport([original, ...plan.added], [restored]).skipped, 1);
+});
 
 test("备份可完整恢复文字并剥离帧签名、图片与未知嵌套字段", () => {
   const note = backupFixture();

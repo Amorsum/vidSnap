@@ -44,7 +44,8 @@ export function parseNotebookBackup(text: string): StudyNote[] {
 function contentKey(note: StudyNote): string {
   const copy = backupNote(note);
   return JSON.stringify({ analysis: { ...copy.analysis, expiresAt: 0, framesExpireAt: undefined },
-    personalNote: copy.personalNote, turns: copy.turns, excerpts: copy.excerpts });
+    personalNote: copy.personalNote, turns: copy.turns, excerpts: copy.excerpts,
+    learning: copy.learning && (copy.learning.completedChapters.length || copy.learning.reviewCount || copy.learning.lastReviewedAt) ? copy.learning : undefined });
 }
 
 export interface ImportPlan { added: StudyNote[]; skipped: number; copies: number }

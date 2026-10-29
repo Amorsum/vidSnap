@@ -179,6 +179,8 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-10-29 | 学习记录交付 | 按授权提交已部署的章节进度与复习记录，核对 README、截图和 311 项自动/17 组浏览器验证说明，保留无关协作配置。 | src/components/LearningProgressPanel.tsx, src/lib/learning-progress.ts, docs/LEARNING_WORKSPACE.md | ✅ 已完成 |
+| 2026-10-29 | 学习进度与复习 | 章节标记、状态筛选、复习次数/日期与导出备份兼容；311 项自动回归、17 组浏览器检查及构建通过，备份旧构建后重启并验收本机/公网交互；上一批备份由 1f8d4be 推送 main。 | src/lib/learning-progress.ts, src/components/LearningProgressPanel.tsx, docs/LEARNING_WORKSPACE.md | ✅ 已部署，接续改动未提交 |
 | 2026-10-29 | 笔记恢复交付 | 按授权交付已验证的笔记备份与恢复，核对 README、补充桌面/手机截图及交接说明，保留无关协作配置。 | README.md, docs/screenshots/, docs/LEARNING_WORKSPACE.md | ✅ 已完成 |
 | 2026-10-29 | 笔记备份与恢复 | JSON 全库备份、导入预览、去重与冲突副本，单事务失败回滚；306 项自动回归、隔离构建与浏览器验证通过，线上服务恢复并确认新入口。 | src/lib/notebook-backup.ts, src/lib/notebook.ts, src/components/NotebookLibrary.tsx | ✅ 已实现验证，未提交 |
 | 2026-10-28 | 媒体独立 DNS | 增加可选 DoH 解决系统 fake-IP 误拦截，保留域名/公网 IP/TLS 保护并区分 DNS 错误；302 项回归、构建及失败链接真实完整音频验证通过，已部署。 | scripts/media_dns.py, scripts/media_network.py, docs/MEDIA_NETWORK.md | ✅ 已完成 |

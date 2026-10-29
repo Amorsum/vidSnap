@@ -10,12 +10,14 @@ import TranscriptPanel from "./TranscriptPanel";
 import NotebookLibrary from "./NotebookLibrary";
 import StudyTools from "./StudyTools";
 import ExcerptPanel from "./ExcerptPanel";
+import LearningProgressPanel from "./LearningProgressPanel";
 import type { ExcerptDraft, StudyNote, StudyTurn } from "@/lib/learning-types";
 import { appendExcerpt, excerptKey, reviewAnswersQuestion } from "@/lib/study-tools";
 import { durableNote, exportMarkdown, formatTime, sourceUrl, transcriptionLabel, visionLabel } from "@/lib/learning";
 import { deleteNote, importNotes, listNotes, saveNote } from "@/lib/notebook";
 import { ProcessStreamInterruptedError, readProcessResult, retryDeadline } from "@/lib/process-stream";
 import { readPendingProcess, writePendingProcess, type PendingProcess } from "@/lib/process-recovery";
+import { recordReview, toggleChapter } from "@/lib/learning-progress";
 
 interface Props { children: ReactNode }
 type Tab = "summary" | "transcript" | "chat";
@@ -332,6 +334,7 @@ export default function LearningWorkspace({ children }: Props) {
         </div>
       </div>
 
+      <LearningProgressPanel note={note} onToggle={index => update(value => toggleChapter(value, index))} onReview={() => update(value => recordReview(value))} onReference={reference} />
       <StudyTools disabled={!canAsk || askWait > 0} onAsk={ask} />
       {studyMessage && <p role="status" className="mb-4 text-sm text-brand-strong">{studyMessage}</p>}
 

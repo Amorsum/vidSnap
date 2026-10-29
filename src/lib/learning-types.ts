@@ -53,6 +53,12 @@ export interface StudyExcerpt extends ExcerptDraft {
   createdAt: number;
 }
 
+export interface LearningProgress {
+  completedChapters: number[];
+  reviewCount: number;
+  lastReviewedAt?: number;
+}
+
 export interface StudyNote {
   id: string;
   version: 1;
@@ -61,6 +67,8 @@ export interface StudyNote {
   personalNote: string;
   /** 兼容已保存的 v1 笔记；缺省时视为空列表，不升级 IndexedDB 结构。 */
   excerpts?: StudyExcerpt[];
+  /** 章节索引只关联当前笔记的总结；重新分析生成新笔记时不继承。 */
+  learning?: LearningProgress;
   createdAt: number;
   updatedAt: number;
   lastViewedAt: number;
