@@ -46,7 +46,7 @@ export function searchByEmbedding(
 }
 
 /**
- * 关键词检索（降级方案）：英文按单词、中文按 2-gram，统计命中率排序
+ * 关键词检索（降级方案）：字母数字按词，中日韩文字按连续片段的 2-gram 排序。
  */
 export function searchByKeyword(
   segments: SearchSegment[],
@@ -55,26 +55,30 @@ export function searchByKeyword(
 ): SearchHit[] {
   const terms = new Set<string>();
 
-  // 英文单词（≥2 字符）
-  const enWords = query.toLowerCase().match(/[a-z0-9]+/g) || [];
+  const normalizedQuery = query.normalize("NFKC").toLowerCase();
+  // 单个数字可能是版本号或章节号；单个英文字母通常是噪声。
+  const enWords = normalizedQuery.match(/[a-z0-9]+/g) || [];
   for (const w of enWords) {
-    if (w.length >= 2) terms.add(w);
+    if (w.length >= 2 || /^\d$/.test(w)) terms.add(w);
   }
 
-  // 中文 2-gram
-  const cjk = query.replace(/[^一-龥]/g, "");
-  for (let i = 0; i + 1 < cjk.length; i++) {
-    terms.add(cjk.slice(i, i + 2));
+  // 按连续的中日韩文字切分，不能跨标点或空格拼成不存在的词。
+  const cjkRuns = normalizedQuery.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu) || [];
+  for (const run of cjkRuns) {
+    const chars = Array.from(run);
+    for (let i = 0; i + 1 < chars.length; i++) terms.add(chars[i] + chars[i + 1]);
+    if (chars.length === 1 && Array.from(normalizedQuery.trim()).length === 1) terms.add(chars[0]);
   }
 
   if (terms.size === 0) return [];
 
   const scored = segments
     .map((s) => {
-      const lower = s.text.toLowerCase();
+      const lower = s.text.normalize("NFKC").toLowerCase();
       let hits = 0;
       for (const t of terms) {
-        if (lower.includes(t)) hits++;
+        const found = /^\d+$/.test(t) ? new RegExp(`(?<![0-9])${t}(?![0-9])`).test(lower) : lower.includes(t);
+        if (found) hits++;
       }
       return { segment: s, score: hits / terms.size };
     })

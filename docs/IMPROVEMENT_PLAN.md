@@ -182,6 +182,12 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-10-30 | 阶段交付 | 归档 N1 隔离原型及 N3 检索/时间引用工具，325 项离线回归通过；数据库接入仍暂缓。 | src/lib/persistence/, src/lib/citation-audit.ts, src/lib/rag.ts | 🚧 后续质量工作继续 |
+| 2026-10-30 | N3 时间引用审计 | 新增离线引用检查，支持分析及笔记备份；不调用模型，不把时间匹配当作事实支持。 | src/lib/citation-audit.ts, scripts/eval/citation-audit.ts, tests/citation-audit.test.ts | 🚧 N3 进行中 |
+| 2026-10-30 | N3 检索质量 | 暂缓数据库配置，改善日文假名、韩文及数字的关键词降级，补充离线合成样本；真实模型与视频质量评测待做。 | src/lib/rag.ts, tests/rag-quality.test.ts | 🚧 N3 进行中 |
+| 2026-10-29 | N1 迁移与删除边界 | 新增显式事务迁移、版本指纹、帧清单校验及删除待清理标记；隔离数据库验证通过，网站接口尚未接入。 | src/lib/persistence/migrate.ts, src/lib/persistence/postgres.ts | 🚧 N1 进行中 |
+| 2026-10-29 | N1 存储适配器原型 | 隔离 PostgreSQL 验证凭据摘要、归属、期限、跨进程读取、对话窗口与删除竞争；应用接入和真实重启恢复仍待完成。 | src/lib/persistence/postgres.ts, tests/postgres-persistence.test.ts | 🚧 N1 进行中 |
+| 2026-10-29 | N0 完成与 N1 原型 | GitHub CI 全部通过、本机浏览器与故障清理验收完成；N1 PostgreSQL 表结构仅在隔离测试库验证，应用接入仍待实现。 | docs/test-reports/TEST-20261029-N0-N1.md, migrations/001_analysis_storage.sql | 🚧 N1 进行中 |
 | 2026-10-29 | N0 浏览器断言稳定性 | GitHub CI 在清空搜索后的延后渲染上出现竞态，改为等待目标行出现；本机隔离浏览器 25 组复验通过。 | tests/browser-notebook-search.py | 🚧 重新验证 |
 | 2026-10-29 | N0 CI 编码修复 | 首次完整 CI 的浏览器入口因 Windows 默认编码失败；改用 UTF-8，本机 25 组浏览器检查复验通过，重新推送后验收。 | scripts/check-browser-isolated.py, docs/NEXT_PHASE_PLAN.md | 🚧 验证中 |
 | 2026-10-29 | N0 隔离浏览器与发布检查 | 首次 CI 已通过；新增三组隔离浏览器自动入口、故障清理演练和发布回滚清单，更新工作流待 GitHub 验证。 | scripts/check-browser-isolated.py, .github/workflows/ci.yml, docs/RELEASE_CHECKLIST.md | 🚧 验证中 |
