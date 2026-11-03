@@ -182,6 +182,8 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-11-03 | N3 核查工具交付 | 同步核查说明及验证报告，收紧核查结论字段类型，真实样本评测待执行。 | src/lib/evidence-review.ts, tests/evidence-review.test.ts, docs/EVIDENCE_REVIEW.md | 🚧 N3 进行中 |
+| 2026-10-30 | N3 事实依据核查 | 增加离线人工核查表，记录依据、矛盾、依据不足与未核查，不以工具测试代替真实样本评测。 | src/lib/evidence-review.ts, scripts/eval/evidence-review.ts | 🚧 N3 进行中 |
 | 2026-10-30 | 阶段交付 | 归档 N1 隔离原型及 N3 检索/时间引用工具，325 项离线回归通过；数据库接入仍暂缓。 | src/lib/persistence/, src/lib/citation-audit.ts, src/lib/rag.ts | 🚧 后续质量工作继续 |
 | 2026-10-30 | N3 时间引用审计 | 新增离线引用检查，支持分析及笔记备份；不调用模型，不把时间匹配当作事实支持。 | src/lib/citation-audit.ts, scripts/eval/citation-audit.ts, tests/citation-audit.test.ts | 🚧 N3 进行中 |
 | 2026-10-30 | N3 检索质量 | 暂缓数据库配置，改善日文假名、韩文及数字的关键词降级，补充离线合成样本；真实模型与视频质量评测待做。 | src/lib/rag.ts, tests/rag-quality.test.ts | 🚧 N3 进行中 |
