@@ -182,6 +182,7 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-11-03 | 项目展示 | 重写 README，集中展示在线体验、产品截图、学习功能和处理流程。 | README.md | ✅ 已完成 |
 | 2026-11-03 | N3 证据段定位 | 服务端按编号生成定位，保留笔记备份兼容。日语固定样本由 2 条可定位提升至 12 条，译法和跨段问题单独记录。 | src/lib/summary-citations.ts, src/components/TranscriptPanel.tsx, docs/test-reports/TEST-20261103-N3-EVIDENCE-IDS.md | 🚧 N3 进行中 |
 | 2026-11-03 | N3 基线与引用复测交付 | 归档 18 项真实转写结论核查、331 项自动回归与 26 项浏览器检查，记录字幕样本缺口和日语定位覆盖。 | docs/test-reports/TEST-20261103-N3-BASELINE.md, docs/test-reports/TEST-20261103-N3-CITATION-FIX.md | 🚧 N3 进行中 |
 | 2026-11-03 | N3 引用时间修复 | 检查视频、章节及证据边界，保留未定位要点正文；使用同一批真实转写复测总结。 | src/lib/summary-citations.ts, src/components/ResultPanel.tsx | 🚧 N3 进行中 |
