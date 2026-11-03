@@ -17,7 +17,7 @@ async function main() {
   const reports = analyses.map((analysis, analysisIndex) => ({ analysisIndex, ...auditCitations(analysis) }));
   // 不归档正文、会话、帧 URL 或输入路径；指纹用于确认被评测的数据版本。
   console.log(JSON.stringify({ version: 1, reports, inputSha256: createHash("sha256").update(input).digest("hex") }, null, 2));
-  if (reports.some(report => report.emptySummary || report.flaggedPoints || report.flaggedChapters)) process.exitCode = 1;
+  if (reports.some(report => report.emptySummary || report.unlocatedPoints || report.flaggedPoints || report.flaggedChapters)) process.exitCode = 1;
 }
 
 main().catch(() => {

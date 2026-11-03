@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { auditCitations } from "../src/lib/citation-audit";
+import { normalizeSummaryCitations } from "../src/lib/summary-citations";
 import type { AnalysisResult } from "../src/lib/learning-types";
 
 function fixture(): AnalysisResult {
@@ -61,6 +62,28 @@ test("估算时间保持标记，小时格式可解析，空总结与空章节�
   analysis.result.segments[0].end = 5000;
   assert.equal(auditCitations(analysis).emptySummary, true);
   assert.equal(auditCitations(analysis).flaggedChapters, 1);
+});
+
+test("估算长段仅保留字幕段起点和画面时间，越界或推测时间的正文仍在", () => {
+  const analysis = fixture();
+  analysis.video.duration = 51.873;
+  analysis.transcriptSegments = [{ start: 0, end: 30.585, text: "前半段" }, { start: 30.585, end: 51.873, text: "后半段" }];
+  analysis.result.segments = [{ start: 0, end: 55, title: "对话", points: ["00:00", "00:05", "00:25", "00:30", "00:55"].map(time => ({ time, text: `要点 ${time}` })) }];
+  const normalized = normalizeSummaryCitations(analysis.result, analysis.video.duration, analysis.transcriptSegments, "estimated", analysis.frames);
+  assert.equal(normalized.segments[0].end, 51.873);
+  assert.deepEqual(normalized.segments[0].points.map(p => p.time), ["00:00", "", "00:25", "00:30", ""]);
+  assert.deepEqual(normalized.segments[0].points.map(p => p.text), analysis.result.segments[0].points.map(p => p.text));
+  assert.equal(analysis.result.segments[0].points.at(-1)?.time, "00:55");
+  const report = auditCitations({ ...analysis, result: normalized });
+  assert.equal(report.unlocatedPoints, 2);
+  assert.equal(report.flaggedPoints, 0);
+});
+
+test("来源时间允许有效字幕范围内定位，拒绝无证据、章节越界和无效时间", () => {
+  const analysis = fixture();
+  const points = ["00:11", "00:16", "00:05", "00:99"].map(time => ({ time, text: time }));
+  analysis.result.segments[0].points = points;
+  assert.deepEqual(normalizeSummaryCitations(analysis.result, 90, analysis.transcriptSegments, "source").segments[0].points.map(p => p.time), ["00:11", "", "", ""]);
 });
 
 test("命令行区分有效、待核查与坏输入，输出不泄漏正文和签名", async () => {

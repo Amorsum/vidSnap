@@ -31,6 +31,7 @@ import { whisperFailureMessage } from "@/lib/whisper-client";
 import { PipelineTimer } from "@/lib/pipeline-timing";
 import { processFlights, type FlightOutcome } from "@/lib/process-flights";
 import { isSummaryResult } from "@/lib/learning";
+import { normalizeSummaryCitations } from "@/lib/summary-citations";
 import type { VisionMetadata } from "@/lib/learning-types";
 import { VisionBudget, VisionBudgetExceeded, visionTimeoutMs } from "@/lib/vision-budget";
 
@@ -285,7 +286,9 @@ ${transcriptText}${visionBlock ? `\n\n${visionBlock}` : ""}`;
 
     const result = parseAIJSON<Record<string, unknown>>(fullText);
     assertAnalysisActive(analysis);
-    return result;
+    if (!isSummaryResult(result)) throw new Error("Invalid summary structure");
+    return normalizeSummaryCitations(result, info.duration, transcript.segments,
+      transcript.transcription?.timing ?? (transcript.source === "builtin" ? "source" : "unknown"), vision?.descriptions);
   });
   timer.markSummaryReady();
   const latencyMs = timer.snapshot().stages.summary!.ms;
@@ -293,8 +296,6 @@ ${transcriptText}${visionBlock ? `\n\n${visionBlock}` : ""}`;
   // 生成 embedding（失败降级，不影响主流程）
   // 关键帧视觉描述作为【画面】伪段落存入追问库（带 embedding），
   // 追问三工具可检索画面信息，支持「画面里有什么/这个人是谁」类问题
-  if (!isSummaryResult(aiResult)) throw new Error("Invalid summary structure");
-
   const visionSegments = (vision?.descriptions ?? []).map((d) => ({
     start: d.time,
     end: d.time + 1,

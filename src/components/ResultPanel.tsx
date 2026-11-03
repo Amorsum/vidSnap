@@ -5,7 +5,7 @@ import type { VideoInfo } from "@/lib/video-processor";
 import Icon from "./Icon";
 import KeyframeGallery, { type FrameInfo } from "./KeyframeGallery";
 import type { ExcerptDraft, SummaryResult } from "@/lib/learning-types";
-import { parseTime } from "@/lib/learning";
+import { summaryPointSeconds } from "@/lib/learning";
 import { excerptKey } from "@/lib/study-tools";
 export type { SummaryResult } from "@/lib/learning-types";
 
@@ -27,11 +27,6 @@ function formatDuration(seconds: number): string {
   const s = Math.floor(seconds % 60);
   if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   return `${m}:${String(s).padStart(2, "0")}`;
-}
-
-function parseTimeToSec(time: string): number {
-  const parts = time.split(":").map(Number).reverse();
-  return (parts[0] || 0) + (parts[1] || 0) * 60 + (parts[2] || 0) * 3600;
 }
 
 export default memo(function ResultPanel({ video, result, transcriptSource, frames, onReference, onExplain, canAsk, onExcerpt, excerptKeys }: ResultPanelProps) {
@@ -108,7 +103,7 @@ export default memo(function ResultPanel({ video, result, transcriptSource, fram
           </div>
           <div>
             <h2 id="summary-heading" className="text-sm font-bold text-ink">AI 视频笔记</h2>
-            <p className="mt-0.5 text-[11px] text-muted">按视频脉络整理，所有要点均可回溯至时间节点</p>
+            <p className="mt-0.5 text-[11px] text-muted">按视频脉络整理，可定位的要点附有时间</p>
           </div>
           <span className="ml-auto hidden items-center gap-1.5 rounded-full border border-[#d6f1e8] bg-[#f2fbf8] px-2.5 py-1 text-[10px] font-semibold text-[#288b70] sm:flex">
             <span className="h-1.5 w-1.5 rounded-full bg-[#40bd98]" /> 已完成
@@ -158,24 +153,24 @@ export default memo(function ResultPanel({ video, result, transcriptSource, fram
                       </div>
                       <ul className="mt-4 space-y-3">
                         {segment.points.map((point, pointIndex) => {
-                          const start = parseTime(point.time);
+                          const start = summaryPointSeconds(point.time, segment, video.duration);
                           const draft: ExcerptDraft = { kind: "summary", text: point.text, ...(start === null ? {} : { start }) };
                           const saved = excerptKeys?.has(excerptKey(draft));
                           return (
                           <li key={`${point.time}-${pointIndex}`} className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-2.5 text-sm leading-6 text-muted">
-                            <button
+                            {start === null ? <span className="mt-0.5 whitespace-nowrap text-xs text-muted">未定位</span> : <button
                               type="button"
-                              onClick={() => handleJump(parseTimeToSec(point.time))}
+                              onClick={() => handleJump(start)}
                               className="mt-0.5 rounded-lg bg-brand-soft px-2 py-0.5 font-mono text-[10px] font-semibold text-brand transition-colors hover:bg-brand hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
                               aria-label={`定位到 ${point.time}`}
                             >
                               {point.time}
-                            </button>
+                            </button>}
                             <div><span>{point.text}</span>{onExcerpt && <button type="button" className="study-button mt-2 block" disabled={saved} onClick={() => onExcerpt(draft)}>{saved ? "已摘录" : "摘录要点"}</button>}</div>
                           </li>
                         ); })}
                       </ul>
-                      {onExplain && <button type="button" className="study-button mt-4" disabled={!canAsk} onClick={() => onExplain(segment.start, segment.end, segment.title)}>解释这一段</button>}
+                      {onExplain && <button type="button" className="study-button mt-4" disabled={!canAsk || segment.end <= segment.start || segment.end > video.duration} onClick={() => onExplain(segment.start, segment.end, segment.title)}>解释这一段</button>}
                     </article>
                   </div>
                 ))}

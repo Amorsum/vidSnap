@@ -182,6 +182,8 @@ A1 RAG → A2 结构化输出 → A3 Eval → A4 可观测 → B3 鉴权限流 �
 
 | 日期 | 阶段 | 完成内容 | 涉及文件 | 状态 |
 |------|------|---------|---------|------|
+| 2026-11-03 | N3 基线与引用复测交付 | 归档 18 项真实转写结论核查、331 项自动回归与 26 项浏览器检查，记录字幕样本缺口和日语定位覆盖。 | docs/test-reports/TEST-20261103-N3-BASELINE.md, docs/test-reports/TEST-20261103-N3-CITATION-FIX.md | 🚧 N3 进行中 |
+| 2026-11-03 | N3 引用时间修复 | 检查视频、章节及证据边界，保留未定位要点正文；使用同一批真实转写复测总结。 | src/lib/summary-citations.ts, src/components/ResultPanel.tsx | 🚧 N3 进行中 |
 | 2026-11-03 | N3 核查工具交付 | 同步核查说明及验证报告，收紧核查结论字段类型，真实样本评测待执行。 | src/lib/evidence-review.ts, tests/evidence-review.test.ts, docs/EVIDENCE_REVIEW.md | 🚧 N3 进行中 |
 | 2026-10-30 | N3 事实依据核查 | 增加离线人工核查表，记录依据、矛盾、依据不足与未核查，不以工具测试代替真实样本评测。 | src/lib/evidence-review.ts, scripts/eval/evidence-review.ts | 🚧 N3 进行中 |
 | 2026-10-30 | 阶段交付 | 归档 N1 隔离原型及 N3 检索/时间引用工具，325 项离线回归通过；数据库接入仍暂缓。 | src/lib/persistence/, src/lib/citation-audit.ts, src/lib/rag.ts | 🚧 后续质量工作继续 |

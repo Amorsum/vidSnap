@@ -51,6 +51,11 @@ export function parseTime(text: string): number | null {
   return parts.reduce((n, part) => n * 60 + part, 0);
 }
 
+export function summaryPointSeconds(time: string, chapter: { start: number; end: number }, duration: number): number | null {
+  const seconds = parseTime(time);
+  return seconds !== null && seconds >= Math.floor(chapter.start) && seconds <= Math.min(chapter.end, duration) ? seconds : null;
+}
+
 /** 只从已验证的平台和 ID 构造外链，不信任本地存储中的任意 URL。 */
 export function sourceUrl(analysis: Pick<AnalysisResult, "platform" | "video">, seconds = 0): string {
   const url = videoSourceUrl(analysis.platform, analysis.video.id);
@@ -113,7 +118,10 @@ export function exportMarkdown(note: StudyNote, includeTranscript: boolean): str
   for (const [index, segment] of a.result.segments.entries()) {
     lines.push("", `## ${plain(segment.title)}（${formatTime(segment.start)}—${formatTime(segment.end)}）`, "");
     lines.push(`学习标记：${note.learning?.completedChapters.includes(index) ? "已学" : "未标记"}`, "");
-    for (const p of segment.points) lines.push(`- [${plain(p.time)}] ${plain(p.text)}`);
+    for (const p of segment.points) {
+      const time = summaryPointSeconds(p.time, segment, a.video.duration);
+      lines.push(`- ${time === null ? "" : `[${plain(p.time)}] `}${plain(p.text)}`);
+    }
   }
   if (a.frames.length) { lines.push("", "## 画面依据", ""); for (const f of a.frames) lines.push(`- [${formatTime(f.time)}] ${plain(f.description)}`); }
   if (note.excerpts?.length) {

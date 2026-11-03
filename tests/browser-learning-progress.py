@@ -33,6 +33,10 @@ async def main():
             response = await page.goto(BASE, wait_until="networkidle")
             assert response.headers.get("x-vidsnap-test-mocks") == "1", "必须使用隔离测试服务"
             note = backup.fixture()
+            note["analysis"]["result"]["segments"][0]["points"] += [
+                {"time": "", "text": "保留没有定位的要点"},
+                {"time": "99:00", "text": "旧笔记中的越界要点"},
+            ]
             note["analysis"]["result"]["segments"].append({"title": "梳理方法与实践", "start": 10, "end": 20, "points": []})
             other = copy.deepcopy(note)
             other["id"] = "second-note"
@@ -42,6 +46,13 @@ async def main():
             await page.get_by_role("button", name="确认导入", exact=True).click()
             await page.get_by_text("导入完成：新增 2 篇，跳过重复 0 篇。", exact=True).wait_for()
             await page.get_by_role("button", name="银行大劫案 · 学习笔记", exact=False).click()
+            await page.get_by_text("保留没有定位的要点", exact=True).wait_for()
+            await page.get_by_text("旧笔记中的越界要点", exact=True).wait_for()
+            assert await page.get_by_text("未定位", exact=True).count() == 2
+            assert await page.get_by_role("button", name="定位到 99:00", exact=True).count() == 0
+            await page.get_by_role("button", name="定位到 00:02", exact=True).click()
+            await page.get_by_text("正在核对 00:02（估算时间）", exact=True).wait_for()
+            checks.append("未定位和历史越界要点保留正文，合法时间仍可跳转")
             panel = page.get_by_role("region", name="学习进度与复习", exact=True)
             await panel.get_by_text("已学 0/2 章节 · 待学习", exact=True).wait_for()
             await panel.get_by_text("逐章标记学习进度", exact=True).click()

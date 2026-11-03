@@ -11,7 +11,9 @@ export function auditCitations(analysis: AnalysisResult) {
     points: chapter.points.map((point, pointIndex) => {
       const seconds = parseTime(point.time);
       const issues: CitationIssue[] = [];
-      if (seconds === null) issues.push("invalid_time");
+      if (seconds === null) {
+        if (point.time !== "") issues.push("invalid_time");
+      }
       else {
         if (seconds > analysis.video.duration) issues.push("outside_video");
         // Prompt 将开始时间向下取整到秒；只容许由此产生的不足一秒偏差。
@@ -32,6 +34,7 @@ export function auditCitations(analysis: AnalysisResult) {
     transcriptionTiming: analysis.transcription.timing,
     factualSupport: "not_evaluated",
     totalPoints: points.length,
+    unlocatedPoints: points.filter(point => point.seconds === null && point.issues.length === 0).length,
     flaggedPoints: points.filter(point => point.issues.length).length,
     flaggedChapters: chapters.filter(chapter => chapter.outsideVideo).length,
     emptySummary: points.length === 0,
