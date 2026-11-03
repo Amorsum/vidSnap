@@ -273,7 +273,7 @@ export async function describeFrames(
  */
 export function formatFramePrompt(descriptions: FrameDescription[]): string {
   return descriptions
-    .map((d) => `[${formatTime(d.time)}] 画面：${d.description}`)
+    .map((d, index) => `[f${index} ${formatTime(d.time)}] 画面：${d.description}`)
     .join("\n");
 }
 

@@ -242,7 +242,7 @@ async function doAISummarize(
   const aiResult = await timer.measure("summary", async () => {
     send({ type: "stream_start" });
 
-    const transcriptText = formatTranscriptForPrompt(transcript.segments);
+    const transcriptText = formatTranscriptForPrompt(transcript.segments, true);
     const durationMin = Math.round(info.duration / 60);
     const visionBlock = vision
       ? `以下是从视频画面抽取的关键帧视觉描述（画面可与字幕互补；字幕与画面冲突时以画面为准；画面时间戳与字幕可能有 ±5 秒偏差，请按语义就近对齐；画面补充的要点同样绑定对应画面时间戳）：

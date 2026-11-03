@@ -86,6 +86,23 @@ test("来源时间允许有效字幕范围内定位，拒绝无证据、章节�
   assert.deepEqual(normalizeSummaryCitations(analysis.result, 90, analysis.transcriptSegments, "source").segments[0].points.map(p => p.time), ["00:11", "", "", ""]);
 });
 
+test("多条要点可复用同一段，服务端忽略模型秒数并拒绝不存在或不在章节的编号", () => {
+  const analysis = fixture();
+  analysis.transcriptSegments.push({ start: 12.4, end: 18, text: "重叠的另一段" });
+  analysis.result.segments[0].points = ["t1", "t1", "f0", "t99", "t01"].map(evidenceId => ({ evidenceId, time: "99:00", text: evidenceId }));
+  const result = normalizeSummaryCitations(analysis.result, 90, analysis.transcriptSegments, "estimated", analysis.frames);
+  const points = result.segments[0].points;
+  assert.deepEqual(points.map(point => point.time), ["00:12", "00:12", "00:25", "", ""]);
+  assert.deepEqual(points.map(point => point.evidenceId), ["t1", "t1", "f0", undefined, undefined]);
+  const report = auditCitations({ ...analysis, result });
+  assert.deepEqual(report.chapters[0].points[0].transcriptIndexes, [1]);
+  assert.deepEqual(report.chapters[0].points[2].frameIndexes, [0]);
+  points[0].time = "00:10";
+  assert.deepEqual(auditCitations({ ...analysis, result }).chapters[0].points[0].issues, ["invalid_evidence"]);
+  analysis.result.segments[0].start = 14;
+  assert.equal(normalizeSummaryCitations(analysis.result, 90, analysis.transcriptSegments, "estimated").segments[0].points[0].time, "");
+});
+
 test("命令行区分有效、待核查与坏输入，输出不泄漏正文和签名", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "vidsnap-citation-test-"));
   const input = path.join(directory, "analysis.json");

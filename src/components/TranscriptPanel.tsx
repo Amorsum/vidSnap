@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import type { AnalysisResult, ExcerptDraft } from "@/lib/learning-types";
 import { formatTime, sourceUrl } from "@/lib/learning";
 import { excerptKey } from "@/lib/study-tools";
+import { resolveSummaryEvidence } from "@/lib/summary-citations";
 
-interface Props { analysis: AnalysisResult; selection: { time: number; sequence: number } | null; onExcerpt?: (draft: ExcerptDraft) => void; excerptKeys?: ReadonlySet<string> }
+interface Props { analysis: AnalysisResult; selection: { time: number; sequence: number; evidenceId?: string } | null; onExcerpt?: (draft: ExcerptDraft) => void; excerptKeys?: ReadonlySet<string> }
 
 function highlight(text: string, query: string) {
   if (!query) return text;
@@ -29,12 +30,15 @@ export default function TranscriptPanel({ analysis, selection, onExcerpt, excerp
   const needle = query.trim();
   const matches = analysis.transcriptSegments.map((s, index) => ({ ...s, index }))
     .filter(s => !needle || s.text.toLocaleLowerCase().includes(needle.toLocaleLowerCase()));
-  const selectedIndex = selection ? analysis.transcriptSegments.findIndex(s => s.start <= selection.time && selection.time < s.end) : -1;
+  const evidence = resolveSummaryEvidence(selection?.evidenceId, analysis.video.duration, analysis);
+  const selectedIndex = evidence ? (evidence.kind === "transcript" ? evidence.index : -1)
+    : selection ? analysis.transcriptSegments.findIndex(s => s.start <= selection.time && selection.time < s.end) : -1;
   // 引用跳转优先于搜索，始终展示真实的时间范围匹配，不把最近字幕冒充引用。
   const rows = selection ? analysis.transcriptSegments.map((s, index) => ({ ...s, index })) : matches;
   const activeIndex = selection ? selectedIndex : matches[Math.min(hit, matches.length - 1)]?.index;
   const count = selection && selectedIndex >= 0 ? Math.max(limit, selectedIndex + 1) : Math.max(limit, hit + 1);
-  const frames = selection ? analysis.frames.filter(f => Math.abs(f.time - selection.time) <= 5) : [];
+  const frames = evidence?.kind === "frame" ? [analysis.frames[evidence.index]]
+    : selection ? analysis.frames.filter(f => Math.abs(f.time - selection.time) <= 5) : [];
 
   useEffect(() => { target.current?.scrollIntoView({ block: "nearest", behavior: "auto" }); }, [selection, hit]);
 
@@ -47,7 +51,7 @@ export default function TranscriptPanel({ analysis, selection, onExcerpt, excerp
     </div>}
     {selection && <div className="my-4 space-y-3 rounded-xl bg-surface-soft p-4" role="status">
       <p>正在核对 {formatTime(selection.time)}{analysis.transcription.timing === "estimated" ? "（估算时间）" : ""}</p>
-      {selectedIndex < 0 && <p className="text-sm">该时间没有对应字幕，不能据此确认文字依据。</p>}
+      {selectedIndex < 0 && evidence?.kind !== "frame" && <p className="text-sm">该时间没有对应字幕，不能据此确认文字依据。</p>}
       {frames.map((f, i) => <p key={i} className="text-sm leading-6"><strong>画面依据 [{formatTime(f.time)}]：</strong>{f.description}</p>)}
       <a className="study-button inline-flex" href={sourceUrl(analysis, selection.time)} target="_blank" rel="noopener noreferrer">打开原视频{analysis.platform === "douyin" ? `（参考 ${formatTime(selection.time)}，需手动定位）` : ` ${formatTime(selection.time)}`}</a>
     </div>}

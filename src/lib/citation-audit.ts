@@ -1,7 +1,8 @@
 import { parseTime } from "./learning";
 import type { AnalysisResult } from "./learning-types";
+import { resolveSummaryEvidence } from "./summary-citations";
 
-export type CitationIssue = "invalid_time" | "outside_video" | "outside_chapter" | "no_temporal_evidence";
+export type CitationIssue = "invalid_time" | "outside_video" | "outside_chapter" | "no_temporal_evidence" | "invalid_evidence";
 
 /** 只检查时间位置，不判断要点是否由证据支持，不将估算字幕视为精确对齐。 */
 export function auditCitations(analysis: AnalysisResult) {
@@ -18,6 +19,13 @@ export function auditCitations(analysis: AnalysisResult) {
         if (seconds > analysis.video.duration) issues.push("outside_video");
         // Prompt 将开始时间向下取整到秒；只容许由此产生的不足一秒偏差。
         if (seconds < Math.floor(chapter.start) || seconds > chapter.end) issues.push("outside_chapter");
+      }
+      if (point.evidenceId !== undefined) {
+        const evidence = resolveSummaryEvidence(point.evidenceId, analysis.video.duration, analysis);
+        const matches = evidence && seconds === Math.floor(evidence.start);
+        if (!matches) issues.push("invalid_evidence");
+        return { pointIndex, seconds, transcriptIndexes: matches && evidence.kind === "transcript" ? [evidence.index] : [],
+          frameIndexes: matches && evidence.kind === "frame" ? [evidence.index] : [], issues };
       }
       const transcriptIndexes = seconds === null ? [] : analysis.transcriptSegments.flatMap((segment, index) =>
         segment.text.trim() && seconds >= Math.floor(segment.start) && seconds <= segment.end ? [index] : []);

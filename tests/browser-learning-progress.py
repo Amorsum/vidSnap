@@ -33,7 +33,9 @@ async def main():
             response = await page.goto(BASE, wait_until="networkidle")
             assert response.headers.get("x-vidsnap-test-mocks") == "1", "必须使用隔离测试服务"
             note = backup.fixture()
+            note["analysis"]["transcriptSegments"].append({"start": 2.25, "end": 4.9, "text": "按编号核对重叠字幕。"})
             note["analysis"]["result"]["segments"][0]["points"] += [
+                {"evidenceId": "t1", "time": "00:02", "text": "直接定位到编号字幕"},
                 {"time": "", "text": "保留没有定位的要点"},
                 {"time": "99:00", "text": "旧笔记中的越界要点"},
             ]
@@ -53,6 +55,15 @@ async def main():
             await page.get_by_role("button", name="定位到 00:02", exact=True).click()
             await page.get_by_text("正在核对 00:02（估算时间）", exact=True).wait_for()
             checks.append("未定位和历史越界要点保留正文，合法时间仍可跳转")
+            await page.get_by_role("tab", name="总结", exact=True).click()
+            await page.set_viewport_size({"width": 390, "height": 844})
+            citation = page.get_by_role("button", name="定位到 约 00:02–00:04", exact=True)
+            await citation.focus()
+            assert await page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
+            await citation.press("Enter")
+            await page.locator("[aria-label='字幕列表'] .ring-2").get_by_text("按编号核对重叠字幕。", exact=True).wait_for()
+            await page.set_viewport_size({"width": 1440, "height": 1000})
+            checks.append("手机键盘跳转定位到编号字幕，重叠时间不抢占")
             panel = page.get_by_role("region", name="学习进度与复习", exact=True)
             await panel.get_by_text("已学 0/2 章节 · 待学习", exact=True).wait_for()
             await panel.get_by_text("逐章标记学习进度", exact=True).click()
@@ -106,6 +117,7 @@ async def main():
             exported = json.loads(target.read_text(encoding="utf-8"))
             assert len(exported["notes"]) == 2, "筛选不应影响全库备份"
             assert next(n for n in exported["notes"] if n["id"] == note["id"])["learning"] == saved["learning"]
+            assert next(n for n in exported["notes"] if n["id"] == note["id"])["analysis"]["result"]["segments"][0]["points"][1]["evidenceId"] == "t1"
             async with page.expect_download() as event:
                 await page.get_by_role("button", name="导出 Markdown", exact=True).click()
             target = OUTPUT / "progress.md"

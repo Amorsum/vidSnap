@@ -14,10 +14,12 @@ export function formatTime(seconds: number): string {
  * 将带时间戳的字幕分段拼接为 Prompt 用户消息
  */
 export function formatTranscriptForPrompt(
-  segments: { start: number; end: number; text: string }[]
+  segments: { start: number; end: number; text: string }[], includeEvidenceIds = false,
 ): string {
   return segments
-    .map((seg) => `[${formatTime(seg.start)}] ${seg.text}`)
+    .map((seg, index) => includeEvidenceIds
+      ? `[t${index} ${formatTime(seg.start)}–${formatTime(seg.end)}] ${seg.text}`
+      : `[${formatTime(seg.start)}] ${seg.text}`)
     .join("\n");
 }
 
@@ -59,7 +61,8 @@ export const SUMMARIZE_SYSTEM_PROMPT = `你是一个专业的视频内容分析�
 
 ## 要求：
 - 所有输出使用中文，但非中文原文必须保留并标注翻译
-- 要点优先引用支持该内容的字幕段或画面给出的时间标签，time 字段使用 MM:SS（不带括号）。只引用视频及所属章节范围内的时间，不推测段落内部的秒数。无法定位时填空字符串。
+- 每个要点填写支持它的一个证据段编号 evidenceId，例如 t0 表示字幕段，f0 表示画面。同一个证据段可以支持多条要点。章节的 start 和 end 须包含所引证据的起点，且不超过视频时长。
+- 有编号时 time 填空，由程序生成定位。原始材料只有时间标签时可省略 evidenceId，并在 time 填所引证据给出的 MM:SS（不带括号）。无法定位时省略 evidenceId 且 time 填空。不要推测段落内部的秒数。
 - 不要编造字幕中没有的内容
 - 总字数控制在 500 字以内
 
@@ -73,7 +76,7 @@ export const SUMMARIZE_SYSTEM_PROMPT = `你是一个专业的视频内容分析�
       "start": 0,
       "end": 200,
       "points": [
-        {"time": "03:20", "text": "要点内容（非中文保留原文+翻译）"}
+        {"evidenceId": "t0", "time": "", "text": "要点内容（非中文保留原文+翻译）"}
       ]
     }
   ]

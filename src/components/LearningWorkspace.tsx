@@ -50,7 +50,7 @@ export default function LearningWorkspace({ children }: Props) {
   const [processRetryAt, setProcessRetryAt] = useState(0);
   const [askRetryAt, setAskRetryAt] = useState(0);
   const [tab, setTab] = useState<Tab>("summary");
-  const [selection, setSelection] = useState<{ time: number; sequence: number } | null>(null);
+  const [selection, setSelection] = useState<{ time: number; sequence: number; evidenceId?: string } | null>(null);
   const [notebookTarget, setNotebookTarget] = useState<{ noteId: string; match: NotebookMatch } | null>(null);
   const [followUpLoading, setFollowUpLoading] = useState(false);
   const asking = useRef(false);
@@ -246,8 +246,8 @@ export default function LearningWorkspace({ children }: Props) {
     finally { asking.current = false; setFollowUpLoading(false); }
   }, [askRetryAt, availability, chooseTab, showNote, update]);
 
-  const reference = useCallback((time: number) => {
-    setSelection({ time, sequence: Date.now() }); setTab("transcript");
+  const reference = useCallback((time: number, evidenceId?: string) => {
+    setSelection({ time, evidenceId, sequence: Date.now() }); setTab("transcript");
     workspace.current?.scrollIntoView({ block: "start", behavior: "auto" });
   }, []);
 
@@ -364,7 +364,7 @@ export default function LearningWorkspace({ children }: Props) {
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className={`min-w-0 ${tab === "chat" ? "hidden xl:block" : ""}`}>
           <div id="panel-summary" role="tabpanel" tabIndex={-1} aria-labelledby="tab-summary" hidden={tab === "transcript"}>
-            <ResultPanel key={note.id} video={note.analysis.video} result={note.analysis.result} transcriptSource={note.analysis.transcriptSource} frames={note.analysis.frames.map(f => ({ ...f, src: (note.analysis.framesExpireAt ?? 0) > now ? f.src : undefined }))} onReference={reference} canAsk={canAsk && askWait === 0} onExplain={(start, end, title) => void ask(`请解释 ${formatTime(start)} 到 ${formatTime(end)} 的「${title}」，基于该段原文说明核心概念，并引用时间。`)} onExcerpt={addExcerpt} excerptKeys={excerptKeys} />
+            <ResultPanel key={note.id} video={note.analysis.video} result={note.analysis.result} transcriptSource={note.analysis.transcriptSource} transcriptSegments={note.analysis.transcriptSegments} timing={note.analysis.transcription.timing} frames={note.analysis.frames.map(f => ({ ...f, src: (note.analysis.framesExpireAt ?? 0) > now ? f.src : undefined }))} onReference={reference} canAsk={canAsk && askWait === 0} onExplain={(start, end, title) => void ask(`请解释 ${formatTime(start)} 到 ${formatTime(end)} 的「${title}」，基于该段原文说明核心概念，并引用时间。`)} onExcerpt={addExcerpt} excerptKeys={excerptKeys} />
             <ExcerptPanel excerpts={note.excerpts ?? []} onReference={reference} onRemove={id => update(value => ({ ...value, excerpts: value.excerpts?.filter(item => item.id !== id), updatedAt: Date.now() }))} />
             <section className="study-panel mt-4"><label htmlFor="personal-note" className="text-base font-semibold">我的笔记</label><p className="mb-3 mt-2 text-sm text-muted">写下你的理解、疑问或下一步行动。</p><textarea id="personal-note" className="study-input min-h-40 resize-y" value={note.personalNote} placeholder="这段视频对我有什么启发？" onChange={e => update(value => ({ ...value, personalNote: e.target.value, updatedAt: Date.now() }))} /></section>
           </div>

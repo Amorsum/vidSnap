@@ -2,7 +2,7 @@
 export interface SummaryResult {
   overall: string;
   videoType?: string;
-  segments: { title: string; start: number; end: number; points: { time: string; text: string }[] }[];
+  segments: { title: string; start: number; end: number; points: { time: string; text: string; evidenceId?: string }[] }[];
 }
 
 export interface TranscriptionMetadata {

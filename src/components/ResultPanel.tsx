@@ -4,8 +4,9 @@ import { memo, useRef, useState } from "react";
 import type { VideoInfo } from "@/lib/video-processor";
 import Icon from "./Icon";
 import KeyframeGallery, { type FrameInfo } from "./KeyframeGallery";
-import type { ExcerptDraft, SummaryResult } from "@/lib/learning-types";
-import { summaryPointSeconds } from "@/lib/learning";
+import type { AnalysisResult, ExcerptDraft, SummaryResult, TranscriptionMetadata } from "@/lib/learning-types";
+import { formatTime, summaryPointSeconds } from "@/lib/learning";
+import { resolveSummaryEvidence } from "@/lib/summary-citations";
 import { excerptKey } from "@/lib/study-tools";
 export type { SummaryResult } from "@/lib/learning-types";
 
@@ -13,8 +14,10 @@ interface ResultPanelProps {
   video: VideoInfo;
   result: SummaryResult;
   transcriptSource: "builtin" | "whisper";
+  transcriptSegments: AnalysisResult["transcriptSegments"];
+  timing: TranscriptionMetadata["timing"];
   frames?: FrameInfo[];
-  onReference?: (time: number) => void;
+  onReference?: (time: number, evidenceId?: string) => void;
   onExplain?: (start: number, end: number, title: string) => void;
   canAsk?: boolean;
   onExcerpt?: (draft: ExcerptDraft) => void;
@@ -29,14 +32,14 @@ function formatDuration(seconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export default memo(function ResultPanel({ video, result, transcriptSource, frames, onReference, onExplain, canAsk, onExcerpt, excerptKeys }: ResultPanelProps) {
+export default memo(function ResultPanel({ video, result, transcriptSource, transcriptSegments, timing, frames, onReference, onExplain, canAsk, onExcerpt, excerptKeys }: ResultPanelProps) {
   const [imgError, setImgError] = useState(false);
   const segmentRefs = useRef<(HTMLElement | null)[]>([]);
   const [highlightIdx, setHighlightIdx] = useState<number | null>(null);
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleJump = (time: number) => {
-    if (onReference) { onReference(time); return; }
+  const handleJump = (time: number, evidenceId?: string) => {
+    if (onReference) { onReference(time, evidenceId); return; }
     let index = result.segments.findIndex((segment) => segment.start <= time && time <= segment.end);
     if (index < 0) {
       for (let i = result.segments.length - 1; i >= 0; i -= 1) {
@@ -153,18 +156,23 @@ export default memo(function ResultPanel({ video, result, transcriptSource, fram
                       </div>
                       <ul className="mt-4 space-y-3">
                         {segment.points.map((point, pointIndex) => {
-                          const start = summaryPointSeconds(point.time, segment, video.duration);
+                          const evidence = resolveSummaryEvidence(point.evidenceId, video.duration, { transcriptSegments, frames: frames ?? [] });
+                          const time = evidence ? formatTime(evidence.start) : point.time;
+                          const valid = summaryPointSeconds(time, segment, video.duration);
+                          const start = point.evidenceId && !evidence || valid === null ? null : evidence?.start ?? valid;
+                          const label = evidence?.kind === "transcript" && evidence.end > evidence.start
+                            ? `${timing === "source" ? "" : "约 "}${time}–${formatTime(evidence.end)}` : time;
                           const draft: ExcerptDraft = { kind: "summary", text: point.text, ...(start === null ? {} : { start }) };
                           const saved = excerptKeys?.has(excerptKey(draft));
                           return (
                           <li key={`${point.time}-${pointIndex}`} className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-2.5 text-sm leading-6 text-muted">
                             {start === null ? <span className="mt-0.5 whitespace-nowrap text-xs text-muted">未定位</span> : <button
                               type="button"
-                              onClick={() => handleJump(start)}
-                              className="mt-0.5 rounded-lg bg-brand-soft px-2 py-0.5 font-mono text-[10px] font-semibold text-brand transition-colors hover:bg-brand hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
-                              aria-label={`定位到 ${point.time}`}
+                              onClick={() => handleJump(start, evidence?.id)}
+                              className="mt-0.5 whitespace-nowrap rounded-lg bg-brand-soft px-2 py-0.5 font-mono text-[10px] font-semibold text-brand transition-colors hover:bg-brand hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+                              aria-label={`定位到 ${label}`}
                             >
-                              {point.time}
+                              {label}
                             </button>}
                             <div><span>{point.text}</span>{onExcerpt && <button type="button" className="study-button mt-2 block" disabled={saved} onClick={() => onExcerpt(draft)}>{saved ? "已摘录" : "摘录要点"}</button>}</div>
                           </li>

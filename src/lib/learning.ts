@@ -26,7 +26,9 @@ export function isAnalysisResult(value: unknown): value is AnalysisResult {
   if (typeof v.id !== "string" || typeof v.title !== "string" || !time(v.duration)
     || typeof v.thumbnail !== "string" || typeof v.uploader !== "string") return false;
   if (value.platform === "bilibili" && !/^(BV[A-Za-z0-9]{10}|av[1-9]\d{0,19})_p([1-9]\d{0,4})$/.test(v.id)) return false;
-  return oneOf(value.transcriptSource, ["builtin", "whisper"]) && typeof value.transcriptText === "string"
+  return value.result.segments.every(chapter => chapter.points.every(point => point.evidenceId === undefined
+      || typeof point.evidenceId === "string" && /^[tf](?:0|[1-9]\d{0,8})$/.test(point.evidenceId)))
+    && oneOf(value.transcriptSource, ["builtin", "whisper"]) && typeof value.transcriptText === "string"
     && object(value.transcription) && oneOf(value.transcription.provider, ["builtin", "sensevoice", "whisper", "unknown"])
     && oneOf(value.transcription.timing, ["source", "estimated", "unknown"])
     && object(value.vision) && oneOf(value.vision.outcome, ["completed", "partial", "budget_exhausted", "failed", "disabled", "unavailable", "unknown"])
@@ -81,7 +83,7 @@ export function durableNote(note: StudyNote): StudyNote {
     vision: { outcome: a.vision.outcome, describedFrames: a.vision.describedFrames, totalFrames: a.vision.totalFrames }, transcriptText: a.transcriptText,
     transcriptSegments: a.transcriptSegments.map(s => ({ start: s.start, end: s.end, text: s.text })),
     result: { overall: a.result.overall, videoType: a.result.videoType, segments: a.result.segments.map(s => ({
-      title: s.title, start: s.start, end: s.end, points: s.points.map(p => ({ time: p.time, text: p.text })),
+      title: s.title, start: s.start, end: s.end, points: s.points.map(p => ({ time: p.time, text: p.text, ...(p.evidenceId ? { evidenceId: p.evidenceId } : {}) })),
     })) },
     frames: a.frames.map(f => ({ time: f.time, description: f.description })),
   }, turns: note.turns.filter(t => t.status === "success").map(t => ({ id: t.id, question: t.question, answer: t.answer, status: t.status, purpose: t.purpose, toolsUsed: t.toolsUsed?.slice() })),
